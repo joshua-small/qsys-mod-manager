@@ -46,23 +46,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # Disposable runner only: remove desktop runtimes with Microsoft's
-          # supported tool, including SDK/Visual Studio-owned installations.
+          # Disposable runner only: uninstall the desktop runtime MSI. SDK/VS
+          # dependency checks are deliberately overridden here, after building.
           $spec = Get-Content Installer/prerequisites.json -Raw | ConvertFrom-Json
-          Invoke-WebRequest https://github.com/dotnet/cli-lab/releases/download/1.7.661902/dotnet-core-uninstall.msi -OutFile artifacts/uninstall-tool.msi
-          if ((Get-FileHash artifacts/uninstall-tool.msi).Hash.ToLowerInvariant() -ne '10f6bbacfaae062dcfcde8311cf8aaa3f8b6523e724e9bbc221c17adb59de65c') { throw 'Uninstall tool hash mismatch' }
-          $p = Start-Process msiexec.exe -ArgumentList ('/i "' + (Resolve-Path artifacts/uninstall-tool.msi).Path + '" /qn /norestart') -Wait -PassThru
-          if ($p.ExitCode -notin @(0,3010)) { throw "Uninstall tool installation failed: $($p.ExitCode)" }
-          & "${env:ProgramFiles(x86)}\dotnet-core-uninstall\dotnet-core-uninstall.exe" remove --windows-desktop-runtime --major-minor 10.0 --x64 --yes --force
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          # SDK bundles can own the same runtime MSI. All builds are finished.
-          & "${env:ProgramFiles(x86)}\dotnet-core-uninstall\dotnet-core-uninstall.exe" remove --sdk --major-minor 10.0 --x64 --yes --force
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
           $products = @(Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*','HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*' | Where-Object { $_.WindowsInstaller -eq 1 -and $_.DisplayName -match '^Microsoft Windows Desktop Runtime - 10\.0\.\d+ \(x64\)$' })
           foreach ($product in $products) {
             if ($product.PSChildName -notmatch '^\{[0-9A-Fa-f-]{36}\}$') { throw 'Unexpected runtime product identifier' }
             Write-Host "Removing runner prerequisite: $($product.DisplayName)"
-            $p = Start-Process msiexec.exe -ArgumentList @('/x',$product.PSChildName,'/qn','/norestart') -Wait -PassThru
+            $p = Start-Process msiexec.exe -ArgumentList @('/x',$product.PSChildName,'/qn','/norestart','IGNOREDEPENDENCIES=ALL','ALLOWMSIUNINSTALL=1') -Wait -PassThru
             if ($p.ExitCode -notin @(0,3010)) { throw "Runtime MSI removal failed: $($p.ExitCode)" }
           }
           $key = 'HKLM:\SOFTWARE\WOW6432Node\dotnet\Setup\InstalledVersions\x64\sharedfx\Microsoft.WindowsDesktop.App'
