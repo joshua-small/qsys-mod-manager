@@ -75,6 +75,8 @@ internal sealed class MainWindow : Window
         installUpdate.Visibility = Visibility.Collapsed; updateStatus.Text = AppIdentity.Name + " " + AppUpdate.CurrentVersion; updateStatus.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
         var footerButtons = new StackPanel { Orientation = Orientation.Horizontal }; footer.Children.Add(footerButtons);
         var import = Button("Import package…"); var backups = Button("Open backups");
+        foreach (var (button, icon) in new[] { (browse, "FolderOpen"), (refresh, "ArrowClockwise"), (refreshCatalog, "ArrowClockwise"), (import, "ArrowImport"), (undo, "ArrowUndo"), (backups, "Archive"), (checkUpdate, "ArrowSync") })
+            SetButtonIcon(button, icon);
         foreach (var button in new[] { refresh, refreshCatalog, checkUpdate, undo, backups, adopt, cancel }) button.Tag = "Subtle";
         foreach (var button in new[] { import, undo, backups, cancel }) footerButtons.Children.Add(button);
         cancel.Visibility = Visibility.Collapsed; cancel.Click += (_, _) => network?.Cancel(); footer.Children.Add(message);
@@ -122,6 +124,11 @@ internal sealed class MainWindow : Window
         Loaded += async (_, _) => { if (target.Items.Count == 0) { foreach (var path in Manager.Discover()) target.Items.Add(path); if (target.Items.Count > 0) target.SelectedIndex = 0; } Refresh(); if (!smoke) { await FetchCatalog(); await CheckManagerUpdate(); var notice = AppUpdate.ConsumeNotice(); if (notice is not null) message.Text = notice; } };
     }
     private static Button Button(string text) => new() { Content = text };
+    private void SetButtonIcon(Button button, string icon)
+    {
+        button.Resources["ActionIcon"] = FindResource("Fluent" + icon);
+        button.ContentTemplate = (DataTemplate)FindResource("ActionButtonContent");
+    }
     private static TextBlock Muted(string text, Thickness margin) { var label = new TextBlock { Text = text, Margin = margin, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap }; label.SetResourceReference(TextBlock.ForegroundProperty, "Muted"); return label; }
     private static Border Card(UIElement child) { var card = new Border { CornerRadius = new CornerRadius(8), Padding = new Thickness(16), Child = child }; card.SetResourceReference(BackgroundProperty, "Card"); return card; }
     private static void Open(string path) => Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });

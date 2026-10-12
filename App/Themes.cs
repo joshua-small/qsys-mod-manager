@@ -52,6 +52,14 @@ internal sealed class Themes : IDisposable
     <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
       <SolidColorBrush x:Key="AccentHover" Color="#0059DE"/><SolidColorBrush x:Key="AccentPressed" Color="#004EC4"/>
       <Style x:Key="KeyboardFocus"><Setter Property="Control.Template"><Setter.Value><ControlTemplate><Border Margin="-3" BorderBrush="{DynamicResource Accent}" BorderThickness="2" CornerRadius="6"/></ControlTemplate></Setter.Value></Setter></Style>
+      <DataTemplate x:Key="ActionButtonContent">
+        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+          <Canvas Width="16" Height="16" Margin="0,0,8,0" VerticalAlignment="Center" IsHitTestVisible="False">
+            <Path Data="{DynamicResource ActionIcon}" Fill="{Binding Foreground,RelativeSource={RelativeSource AncestorType=Button}}"/>
+          </Canvas>
+          <TextBlock Text="{Binding}" VerticalAlignment="Center"/>
+        </StackPanel>
+      </DataTemplate>
       <Style TargetType="Window">
         <Setter Property="Background" Value="{DynamicResource Page}"/><Setter Property="Foreground" Value="{DynamicResource Text}"/><Setter Property="FontFamily" Value="Segoe UI"/><Setter Property="FontSize" Value="14"/>
         <Setter Property="UseLayoutRounding" Value="True"/><Setter Property="SnapsToDevicePixels" Value="True"/>

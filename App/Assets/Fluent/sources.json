@@ -1,0 +1,26 @@
+[
+  {
+    "name": "Folder Open",
+    "url": "https://raw.githubusercontent.com/microsoft/fluentui-system-icons/a347af95478f989038cccbf085978865264c048a/assets/Folder%20Open/SVG/ic_fluent_folder_open_16_regular.svg"
+  },
+  {
+    "name": "Arrow Clockwise",
+    "url": "https://raw.githubusercontent.com/microsoft/fluentui-system-icons/a347af95478f989038cccbf085978865264c048a/assets/Arrow%20Clockwise/SVG/ic_fluent_arrow_clockwise_16_regular.svg"
+  },
+  {
+    "name": "Arrow Import",
+    "url": "https://raw.githubusercontent.com/microsoft/fluentui-system-icons/a347af95478f989038cccbf085978865264c048a/assets/Arrow%20Import/SVG/ic_fluent_arrow_import_16_regular.svg"
+  },
+  {
+    "name": "Arrow Undo",
+    "url": "https://raw.githubusercontent.com/microsoft/fluentui-system-icons/a347af95478f989038cccbf085978865264c048a/assets/Arrow%20Undo/SVG/ic_fluent_arrow_undo_16_regular.svg"
+  },
+  {
+    "name": "Archive",
+    "url": "https://raw.githubusercontent.com/microsoft/fluentui-system-icons/a347af95478f989038cccbf085978865264c048a/assets/Archive/SVG/ic_fluent_archive_16_regular.svg"
+  },
+  {
+    "name": "Arrow Sync",
+    "url": "https://raw.githubusercontent.com/microsoft/fluentui-system-icons/a347af95478f989038cccbf085978865264c048a/assets/Arrow%20Sync/SVG/ic_fluent_arrow_sync_16_regular.svg"
+  }
+]
