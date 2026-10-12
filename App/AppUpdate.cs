@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.IO;
 using System.Reflection;
+using System.Text;
 using System.Windows;
 
 namespace QdsModManager.App;
@@ -133,8 +134,18 @@ internal static class AppUpdate
     }
     private static async Task Worker(string mode, string folder)
     {
-        var start = new ProcessStartInfo(Environment.ProcessPath!) { UseShellExecute = true, Verb = "runas", WindowStyle = ProcessWindowStyle.Hidden };
-        start.ArgumentList.Add(mode); start.ArgumentList.Add(folder);
+        // Elevate the Windows host, then launch the staged app directly. Shell
+        // elevation of the portable apphost can fail with ERROR_PATH_NOT_FOUND.
+        // All interpolated values are literal strings; no request is executed.
+        string Literal(string value) => "'" + value.Replace("'", "''") + "'";
+        string script = "$ErrorActionPreference='Stop'; $s=New-Object System.Diagnostics.ProcessStartInfo; "
+            + "$s.FileName=" + Literal(Environment.ProcessPath!) + "; $s.UseShellExecute=$false; "
+            + "$s.WorkingDirectory=" + Literal(AppContext.BaseDirectory) + "; "
+            + "$s.Arguments=" + Literal(mode + " \"" + folder + "\"") + "; "
+            + "$p=[System.Diagnostics.Process]::Start($s); $p.WaitForExit(); exit $p.ExitCode";
+        var start = new ProcessStartInfo(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "WindowsPowerShell", "v1.0", "powershell.exe")) { UseShellExecute = true, Verb = "runas", WindowStyle = ProcessWindowStyle.Hidden };
+        start.ArgumentList.Add("-NoProfile"); start.ArgumentList.Add("-NonInteractive"); start.ArgumentList.Add("-EncodedCommand");
+        start.ArgumentList.Add(Convert.ToBase64String(Encoding.Unicode.GetBytes(script)));
         using var child = Process.Start(start) ?? throw new IOException("Could not start the update installer."); await child.WaitForExitAsync();
     }
     private static void WriteNew(string path, byte[] bytes)

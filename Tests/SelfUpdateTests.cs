@@ -10,7 +10,10 @@ internal static class SelfUpdateTests
         output = Path.GetFullPath(output); if (Directory.Exists(output)) throw new IOException("Use a fresh test output directory."); Directory.CreateDirectory(output);
         byte[] oldBytes = File.ReadAllBytes(oldZip), newBytes = File.ReadAllBytes(newZip);
         ManagerRelease Release(string version, byte[] bytes) => new(version, "v" + version, $"https://github.com/{ManagerRelease.Repository}/releases/download/v{version}/QDS-Mod-Manager-{version}-win-x64.zip", Data.Hash(bytes), bytes.Length);
-        var oldRelease = Release("0.2.0", oldBytes); var release = Release("0.3.0", newBytes);
+        string candidateVersion;
+        using (var zip = new ZipArchive(new MemoryStream(newBytes)))
+        { using var entry = zip.GetEntry("QDS Mod Manager.dll")!.Open(); using var assembly = new MemoryStream(); entry.CopyTo(assembly); candidateVersion = Version.Parse(ManagerArchive.VerifyAssembly(assembly.ToArray(), "QDS Mod Manager", null)).ToString(3); }
+        var oldRelease = Release("0.2.0", oldBytes); var release = Release(candidateVersion, newBytes);
         var oldArchive = ManagerArchive.Open(oldBytes, oldRelease); var archive = ManagerArchive.Open(newBytes, release); var checks = new List<string>();
         void Check(bool condition, string label) { if (!condition) throw new Exception(label); checks.Add(label); }
         void Reject(Action action, string label) { try { action(); } catch { checks.Add(label); return; } throw new Exception("Accepted: " + label); }
@@ -24,11 +27,11 @@ internal static class SelfUpdateTests
             File.WriteAllText(Path.Combine(root, "settings.json"), "keep settings"); File.WriteAllText(Path.Combine(root, "unrelated.dll"), "keep unrelated"); return root;
         }
         void Preserved(string root) => Check(File.ReadAllText(Path.Combine(root, "Packages", "custom.qdsmod")) == "keep package" && File.ReadAllText(Path.Combine(root, "settings.json")) == "keep settings" && File.ReadAllText(Path.Combine(root, "unrelated.dll")) == "keep unrelated", "Packages, settings and unknown files preserved: " + Path.GetFileName(root));
-        Check(release.IsNewerThan("0.2.0.0") && !release.IsNewerThan("0.3.0.0") && !release.IsNewerThan("0.4.0"), "Version comparison normalizes assembly revisions and avoids downgrade");
+        Check(release.IsNewerThan("0.2.0.0") && !release.IsNewerThan(candidateVersion + ".0") && !release.IsNewerThan("99.0.0"), "Version comparison normalizes assembly revisions and avoids downgrade");
         string happy = Fresh("success"); var plan = updater.Prepare(happy, release); var result = updater.Apply(plan, newBytes);
         Check(result.Success && result.SafeToStart, "Portable manager update succeeds");
         Check(archive.Files.All(p => Data.HashFile(Path.Combine(happy, p.Key)) == Data.Hash(p.Value)), "All installed files match published archive");
-        Check(Data.Read<AppFiles>(File.ReadAllBytes(Path.Combine(happy, "installed-files.json"))).Version == "0.3.0", "Installed version recorded");
+        Check(Data.Read<AppFiles>(File.ReadAllBytes(Path.Combine(happy, "installed-files.json"))).Version == candidateVersion, "Installed version recorded");
         Check(plan.Before.Where(p => p.Value is not null).All(p => Data.HashFile(Path.Combine(result.Backup!, "before", p.Key)) == p.Value), "Every original file backed up with exact hash");
         Check(updater.Recover(plan).Success, "Recovery recognizes completed transaction"); Preserved(happy);
         Reject(() => updater.Prepare(happy, release), "Same version rejected"); Reject(() => updater.Prepare(happy, oldRelease), "Downgrade rejected");
@@ -84,11 +87,11 @@ internal static class SelfUpdateTests
             { foreach (var file in archive.Files) { using var entry = zip.CreateEntry(file.Key).Open(); entry.Write(file.Value); } edit(zip); } return stream.ToArray();
         }
         foreach (string entry in new[] { "../outside.dll", "QDS Mod Manager.dll", "extra.exe" })
-        { byte[] altered = Repack(zip => { using var extra = zip.CreateEntry(entry).Open(); extra.WriteByte(1); }); Reject(() => ManagerArchive.Open(altered, Release("0.3.0", altered)), "Unexpected or duplicate archive entry rejected: " + entry); }
+        { byte[] altered = Repack(zip => { using var extra = zip.CreateEntry(entry).Open(); extra.WriteByte(1); }); Reject(() => ManagerArchive.Open(altered, Release(candidateVersion, altered)), "Unexpected or duplicate archive entry rejected: " + entry); }
         byte[] Api(ManagerRelease item, bool pre = false, string? digest = "auto") => Data.Bytes(new { draft = false, prerelease = pre, tag_name = item.Tag, assets = new[] { new { name = $"QDS-Mod-Manager-{item.Version}-win-x64.zip", browser_download_url = item.Url, size = item.Size, digest = digest == "auto" ? "sha256:" + item.Sha256 : digest } } });
         using (var client = new ManagerReleaseClient(new HttpClient(new Handler(req =>
         {
-            Check(req.RequestUri!.ToString() is ManagerReleaseClient.Api + "latest" or ManagerReleaseClient.Api + "tags/v0.3.0" || req.RequestUri.ToString() == release.Url, "Only expected release endpoints requested");
+            Check(req.RequestUri!.ToString() == ManagerReleaseClient.Api + "latest" || req.RequestUri.ToString() == ManagerReleaseClient.Api + "tags/" + release.Tag || req.RequestUri.ToString() == release.Url, "Only expected release endpoints requested");
             return new(HttpStatusCode.OK) { Content = new ByteArrayContent(req.RequestUri.ToString() == release.Url ? newBytes : Api(release)) };
         }))))
         {
