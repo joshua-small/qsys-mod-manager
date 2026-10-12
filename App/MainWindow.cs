@@ -100,6 +100,7 @@ internal sealed class MainWindow : Window
         var actionButtons = new[] { install, adopt, toggle, remove };
         for (int i = 0; i < actionButtons.Length; i++) { var button = actionButtons[i]; button.Margin = new Thickness(0, 0, i % 2 == 0 ? 8 : 0, 8); Grid.SetColumn(button, i % 2); Grid.SetRow(button, i / 2); actions.Children.Add(button); }
         install.Tag = "Primary";
+        SetButtonIcon(adopt, "Settings"); SetButtonIcon(remove, "Delete"); SetButtonIcon(installUpdate, "ArrowDownload");
         repositoryIcon.Data = (Geometry)FindResource("GitHubMark"); repositoryIcon.SetBinding(System.Windows.Shapes.Shape.FillProperty, new Binding(nameof(Hyperlink.Foreground)) { Source = repositoryLink }); repositoryIcon.IsHitTestVisible = false;
         repositoryLink.Inlines.Add(new InlineUIContainer(repositoryIcon) { BaselineAlignment = BaselineAlignment.Center }); repositoryLink.Inlines.Add(new Run("View on GitHub") { TextDecorations = TextDecorations.Underline }); repository.Inlines.Add(repositoryLink);
         repository.Margin = new Thickness(0, 16, 0, 0); repository.HorizontalAlignment = HorizontalAlignment.Left; detail.Children.Add(repository);
@@ -196,9 +197,11 @@ internal sealed class MainWindow : Window
         bool supported = choice is not null && (choice.Release is null ? inspection is not null : IsCompatible(choice.Release));
         bool alreadyInstalled = row?.Local?.Managed is true && row.Local.Enabled && row.Local.Version == choice?.Version;
         install.Content = alreadyInstalled ? "Installed" : choice?.Package is null ? "Download & install" : row?.Local?.Managed is true ? "Install version" : "Install";
+        SetButtonIcon(install, alreadyInstalled ? "Checkmark" : "ArrowDownload");
         install.IsEnabled = ready && supported && !alreadyInstalled;
         adopt.IsEnabled = ready && row?.Local?.Managed is false && row.Local.Status == "Installed · not managed yet" && choice?.Package is not null;
         toggle.IsEnabled = remove.IsEnabled = ready && row?.Local?.Managed is true; toggle.Content = row?.Local?.Enabled is true ? "Disable" : "Enable";
+        SetButtonIcon(toggle, row?.Local?.Enabled is true ? "Prohibited" : "CheckmarkCircle");
         undo.Content = inspection?.Pending is not null ? "Recover interrupted change" : "Undo last change"; undo.IsEnabled = !busy && inspection is not null && (inspection.Pending is not null || inspection.CanUndo);
         target.IsEnabled = mods.IsEnabled = versions.IsEnabled = scope.IsEnabled = search.IsEnabled = compatibleOnly.IsEnabled = refreshCatalog.IsEnabled = !busy;
         repositoryLink.IsEnabled = row is not null; repositoryLink.NavigateUri = row is null ? null : new Uri("https://github.com/" + OnlineCatalog.Repository(row.Id));
@@ -323,6 +326,22 @@ internal sealed class MainWindow : Window
         else { detailScroll.ScrollToBottom(); UpdateLayout(); Check(Bounds(repository).Bottom <= Bounds(detailScroll).Bottom + 1, "Scrolling reveals the final detail action at minimum size"); detailScroll.ScrollToTop(); UpdateLayout(); }
         Check(System.Windows.Automation.AutomationProperties.GetName(search) == "Search mods", "Search has a persistent accessible name");
         Check(Math.Abs(repositoryIcon.ActualWidth - 16) < 1 && Math.Abs(repositoryIcon.ActualHeight - 16) < 1 && !repositoryIcon.Data.IsEmpty(), "Official GitHub vector renders at 16 units");
+        object originalInstallLabel = install.Content;
+        install.Content = "Download & install"; UpdateLayout();
+        IEnumerable<T> Visuals<T>(DependencyObject parent) where T : DependencyObject
+        {
+            for (int i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
+            {
+                var child = VisualTreeHelper.GetChild(parent, i);
+                if (child is T match) yield return match;
+                foreach (var descendant in Visuals<T>(child)) yield return descendant;
+            }
+        }
+        var installLabel = Visuals<TextBlock>(install).Single();
+        var labelPosition = installLabel.TranslatePoint(new Point(), install);
+        bool labelFits = labelPosition.X >= 12 && labelPosition.X + installLabel.ActualWidth <= install.ActualWidth - 12 && labelPosition.Y >= 6 && labelPosition.Y + installLabel.ActualHeight <= install.ActualHeight - 6;
+        install.Content = originalInstallLabel; UpdateLayout();
+        Check(labelFits, "Longest install label fits with its icon and padding");
         Check(System.Windows.Media.VisualTreeHelper.GetDescendantBounds((System.Windows.Media.Visual)Content).Width <= ((FrameworkElement)Content).ActualWidth + 1, "Content fits the window width");
         return result.ToArray();
     }

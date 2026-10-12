@@ -22,5 +22,29 @@
   {
     "name": "Arrow Sync",
     "url": "https://raw.githubusercontent.com/microsoft/fluentui-system-icons/a347af95478f989038cccbf085978865264c048a/assets/Arrow%20Sync/SVG/ic_fluent_arrow_sync_16_regular.svg"
+  },
+  {
+    "name": "Arrow Download",
+    "url": "https://raw.githubusercontent.com/microsoft/fluentui-system-icons/a347af95478f989038cccbf085978865264c048a/assets/Arrow%20Download/SVG/ic_fluent_arrow_download_16_regular.svg"
+  },
+  {
+    "name": "Checkmark",
+    "url": "https://raw.githubusercontent.com/microsoft/fluentui-system-icons/a347af95478f989038cccbf085978865264c048a/assets/Checkmark/SVG/ic_fluent_checkmark_16_regular.svg"
+  },
+  {
+    "name": "Settings",
+    "url": "https://raw.githubusercontent.com/microsoft/fluentui-system-icons/a347af95478f989038cccbf085978865264c048a/assets/Settings/SVG/ic_fluent_settings_16_regular.svg"
+  },
+  {
+    "name": "Checkmark Circle",
+    "url": "https://raw.githubusercontent.com/microsoft/fluentui-system-icons/a347af95478f989038cccbf085978865264c048a/assets/Checkmark%20Circle/SVG/ic_fluent_checkmark_circle_16_regular.svg"
+  },
+  {
+    "name": "Prohibited",
+    "url": "https://raw.githubusercontent.com/microsoft/fluentui-system-icons/a347af95478f989038cccbf085978865264c048a/assets/Prohibited/SVG/ic_fluent_prohibited_16_regular.svg"
+  },
+  {
+    "name": "Delete",
+    "url": "https://raw.githubusercontent.com/microsoft/fluentui-system-icons/a347af95478f989038cccbf085978865264c048a/assets/Delete/SVG/ic_fluent_delete_16_regular.svg"
   }
 ]

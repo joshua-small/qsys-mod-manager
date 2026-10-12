@@ -53,12 +53,13 @@ internal sealed class Themes : IDisposable
       <SolidColorBrush x:Key="AccentHover" Color="#0059DE"/><SolidColorBrush x:Key="AccentPressed" Color="#004EC4"/>
       <Style x:Key="KeyboardFocus"><Setter Property="Control.Template"><Setter.Value><ControlTemplate><Border Margin="-3" BorderBrush="{DynamicResource Accent}" BorderThickness="2" CornerRadius="6"/></ControlTemplate></Setter.Value></Setter></Style>
       <DataTemplate x:Key="ActionButtonContent">
-        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+        <Grid VerticalAlignment="Center">
+          <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
           <Canvas Width="16" Height="16" Margin="0,0,8,0" VerticalAlignment="Center" IsHitTestVisible="False">
             <Path Data="{DynamicResource ActionIcon}" Fill="{Binding Foreground,RelativeSource={RelativeSource AncestorType=Button}}"/>
           </Canvas>
-          <TextBlock Text="{Binding}" VerticalAlignment="Center"/>
-        </StackPanel>
+          <TextBlock Grid.Column="1" Text="{Binding}" VerticalAlignment="Center" TextWrapping="Wrap"/>
+        </Grid>
       </DataTemplate>
       <Style TargetType="Window">
         <Setter Property="Background" Value="{DynamicResource Page}"/><Setter Property="Foreground" Value="{DynamicResource Text}"/><Setter Property="FontFamily" Value="Segoe UI"/><Setter Property="FontSize" Value="14"/>
