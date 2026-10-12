@@ -68,6 +68,16 @@ try {
         Check (-not $app.HasExited -and $app.MainWindowTitle -like 'Q-SYS Mod Manager*') 'Installed app starts successfully'
         RunSetup 'running-app-rejected' @() $false
     } finally { if (-not $app.HasExited) { $null = $app.CloseMainWindow(); if (-not $app.WaitForExit(15000)) { throw 'Test app did not close' } } }
+    $locked = [IO.File]::Open((Join-Path $target 'Q-SYS Mod Manager.exe'), [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::None)
+    try { RunSetup 'locked-file-rejected' @() $false } finally { $locked.Dispose() }
+    $appDll = Join-Path $target 'Q-SYS Mod Manager.dll'
+    $original = [IO.File]::ReadAllBytes($appDll)
+    try {
+        # The Core assembly's 1.0.0 file version is a higher-version fixture.
+        Copy-Item -LiteralPath (Join-Path $target 'QdsModManager.Core.dll') -Destination $appDll -Force
+        RunSetup 'downgrade-rejected' @() $false
+        Check ([bool](Select-String -LiteralPath (Join-Path $output 'downgrade-rejected.log') -SimpleMatch 'A newer Q-SYS Mod Manager is already installed')) 'Downgrade reports the newer installed version'
+    } finally { [IO.File]::WriteAllBytes($appDll, $original) }
     'damaged file' | Set-Content -LiteralPath (Join-Path $target 'README.md')
     RunSetup 'repair'
     $null = VerifyPayload

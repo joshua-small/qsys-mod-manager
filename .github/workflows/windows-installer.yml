@@ -46,15 +46,18 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # Disposable runner only: remove the exact runtime bundle if it is
-          # registered, so Setup must exercise prerequisite installation.
+          # Disposable runner only: remove desktop runtimes with Microsoft's
+          # supported tool, including SDK/Visual Studio-owned installations.
           $spec = Get-Content Installer/prerequisites.json -Raw | ConvertFrom-Json
-          $runtime = Get-ChildItem artifacts/release/prerequisites/*.exe | Select-Object -First 1
-          $p = Start-Process $runtime.FullName -ArgumentList '/uninstall /quiet /norestart' -Wait -PassThru
-          if ($p.ExitCode -notin @(0,3010)) { throw "Runtime removal failed: $($p.ExitCode)" }
+          Invoke-WebRequest https://github.com/dotnet/cli-lab/releases/download/1.7.661902/dotnet-core-uninstall.msi -OutFile artifacts/uninstall-tool.msi
+          if ((Get-FileHash artifacts/uninstall-tool.msi).Hash.ToLowerInvariant() -ne '10f6bbacfaae062dcfcde8311cf8aaa3f8b6523e724e9bbc221c17adb59de65c') { throw 'Uninstall tool hash mismatch' }
+          $p = Start-Process msiexec.exe -ArgumentList ('/i "' + (Resolve-Path artifacts/uninstall-tool.msi).Path + '" /qn /norestart') -Wait -PassThru
+          if ($p.ExitCode -notin @(0,3010)) { throw "Uninstall tool installation failed: $($p.ExitCode)" }
+          & "${env:ProgramFiles(x86)}\dotnet-core-uninstall\dotnet-core-uninstall.exe" remove --windows-desktop-runtime --major-minor 10.0 --x64 --yes --force
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
           $key = 'HKLM:\SOFTWARE\WOW6432Node\dotnet\Setup\InstalledVersions\x64\sharedfx\Microsoft.WindowsDesktop.App'
           $ready = @(if (Test-Path $key) { (Get-Item $key).Property | Where-Object { $_ -match '^10\.0\.\d+$' -and ([version]$_).Build -ge ([version]$spec.runtimeVersion).Build } })
-          if ($ready.Count) { throw 'Runner still has a registered compatible runtime; missing-prerequisite test cannot proceed.' }
+          if ($ready.Count) { throw "Runner still has compatible runtimes: $ready" }
           gh release download v0.3.1 --repo joshua-small/qsys-mod-manager --pattern QDS-Mod-Manager-0.3.1-win-x64.zip --dir artifacts/old
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           $setup = Get-ChildItem artifacts/release/*Setup*.exe | Select-Object -First 1
