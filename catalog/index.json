@@ -1,0 +1,39 @@
+{
+  "schema": 1,
+  "mods": [
+    {
+      "id": "schematic-tools",
+      "name": "Schematic Tools",
+      "description": "Packing and shortcuts, named-signal colors, aligned color palette, icon search, editor shortcuts, and snapshot tools.",
+      "repository": "joshua-small/qsys-schematic-tools",
+      "releases": [
+        {
+          "version": "0.15.0.0",
+          "designerVersion": "10.5",
+          "hostSha256": "0e7150f8dc02e0159e019188780fb003ce025f5ec18c491609cf337d849bda60",
+          "commonSha256": "a6d1addda06bdcb1ad32b57c7480c947210c3d3ad287f5818c2ea64068bf5aee",
+          "url": "https://github.com/joshua-small/qsys-schematic-tools/releases/download/v0.15.0/schematic-tools-0.15.0.qdsmod",
+          "sha256": "420229176b47cc11ef379a576426f40086d5b6ab04b566ff1cebb8f04545f966",
+          "size": 894762
+        }
+      ]
+    },
+    {
+      "id": "automatic-geometry",
+      "name": "Automatic Geometry",
+      "description": "Automatic component widths for control-pin labels, plus 10-unit Container and Channel Group connectors with centered labels and pins.",
+      "repository": "joshua-small/qsys-automatic-geometry",
+      "releases": [
+        {
+          "version": "0.1.1.0",
+          "designerVersion": "10.5",
+          "hostSha256": "0e7150f8dc02e0159e019188780fb003ce025f5ec18c491609cf337d849bda60",
+          "commonSha256": "a6d1addda06bdcb1ad32b57c7480c947210c3d3ad287f5818c2ea64068bf5aee",
+          "url": "https://github.com/joshua-small/qsys-automatic-geometry/releases/download/v0.1.1/automatic-geometry-0.1.1.qdsmod",
+          "sha256": "d3c0277375d45452e7c1d77087cccebc05c0bdf748facb257f4c2b433f7da885",
+          "size": 808808
+        }
+      ]
+    }
+  ]
+}
