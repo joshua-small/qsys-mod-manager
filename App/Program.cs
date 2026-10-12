@@ -11,18 +11,6 @@ internal static class Program
     [STAThread]
     public static int Main(string[] args)
     {
-        // Setup's post-install launch starts just before its process exits.
-        for (int wait = 0; wait < 40; wait++)
-        {
-            if (!Mutex.TryOpenExisting(@"Global\QsysModManager.Setup", out var setup)) break;
-            setup.Dispose();
-            if (wait == 39)
-            {
-                MessageBox.Show("Finish installing Q-SYS Mod Manager before opening it.", AppIdentity.Name, MessageBoxButton.OK, MessageBoxImage.Information);
-                return 1;
-            }
-            Thread.Sleep(250);
-        }
         // Setup/uninstall must wait for the UI and its elevated helpers to exit.
         using var installerMutex = new Mutex(false, @"Global\QsysModManager.Application");
         if (args.Length == 2 && args[0].StartsWith("--self-update-", StringComparison.Ordinal))

@@ -53,13 +53,13 @@ jobs:
           foreach ($product in $products) {
             if ($product.PSChildName -notmatch '^\{[0-9A-Fa-f-]{36}\}$') { throw 'Unexpected runtime product identifier' }
             Write-Host "Removing runner prerequisite: $($product.DisplayName)"
-            $p = Start-Process msiexec.exe -ArgumentList @('/x',$product.PSChildName,'/qn','/norestart','IGNOREDEPENDENCIES=ALL','ALLOWMSIUNINSTALL=1') -Wait -PassThru
+            $p = Start-Process msiexec.exe -ArgumentList @('/x',$product.PSChildName,'/qn','/norestart','IGNOREDEPENDENCIES=ALL','ALLOWMSIUNINSTALL=1','/l*v',('"'+$env:RUNNER_TEMP+'\runtime-removal.log"')) -Wait -PassThru
             if ($p.ExitCode -notin @(0,3010)) { throw "Runtime MSI removal failed: $($p.ExitCode)" }
           }
           $key = 'HKLM:\SOFTWARE\WOW6432Node\dotnet\Setup\InstalledVersions\x64\sharedfx\Microsoft.WindowsDesktop.App'
           $ready = @(if (Test-Path $key) { (Get-Item $key).Property | Where-Object { $_ -match '^10\.0\.\d+$' -and ([version]$_).Build -ge ([version]$spec.runtimeVersion).Build } })
           if ($ready.Count) {
-            Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*','HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*' | Where-Object DisplayName -match '10\.0\.12' | Select-Object DisplayName,PSChildName,UninstallString | Format-List
+            Get-Content "$env:RUNNER_TEMP\runtime-removal.log" -Tail 150
             throw "Runner still has compatible runtimes: $ready"
           }
           gh release download v0.3.1 --repo joshua-small/qsys-mod-manager --pattern QDS-Mod-Manager-0.3.1-win-x64.zip --dir artifacts/old
