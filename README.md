@@ -3,7 +3,7 @@
 Find, install, and manage mods for Q-SYS Designer.
 
 1. Download the **Q-SYS-Mod-Manager** Windows ZIP from [Releases](https://github.com/joshua-small/qsys-mod-manager/releases/latest), extract it, and open **Q-SYS Mod Manager.exe**. Requires the .NET 10 Desktop Runtime (Windows x64).
-2. Choose your Designer installation. Search **Browse mods** to find compatible mods.
+2. Choose your **Designer installation**, or use **Browse…** to locate it. Type in **Search mods…** to narrow the list of compatible mods.
 3. Close Designer, select a mod and version, then choose **Download & install**. Review the change and allow the administrator prompt.
 4. Start Designer to use your mods.
 

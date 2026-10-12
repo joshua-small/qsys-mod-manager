@@ -14,20 +14,22 @@ internal sealed record ThemeChoice(string Name, Appearance Value) { public overr
 
 internal sealed class MainWindow : Window
 {
-    private readonly ComboBox target = new() { MinWidth = 390 };
+    private readonly ComboBox target = new() { MinWidth = 320, Margin = new Thickness(0, 0, 8, 0) };
     private readonly ComboBox theme = new() { Width = 170, DisplayMemberPath = "Name" };
-    private readonly ComboBox scope = new() { Width = 155, Margin = new Thickness(0, 0, 10, 0) };
-    private readonly TextBox search = new() { MinWidth = 190, Tag = "Search mods…", ToolTip = "Search mod names and descriptions" };
-    private readonly CheckBox compatibleOnly = new() { Content = "Compatible only", IsChecked = true, Margin = new Thickness(14, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
-    private readonly DataGrid mods = new() { AutoGenerateColumns = false, IsReadOnly = true, CanUserAddRows = false, HeadersVisibility = DataGridHeadersVisibility.Column, SelectionMode = DataGridSelectionMode.Single, SelectionUnit = DataGridSelectionUnit.FullRow, RowHeight = 58, GridLinesVisibility = DataGridGridLinesVisibility.Horizontal };
-    private readonly ComboBox versions = new() { Margin = new Thickness(0, 8, 0, 20), DisplayMemberPath = "Label" };
-    private readonly TextBlock heading = new() { FontSize = 23, FontWeight = FontWeights.SemiBold };
-    private readonly TextBlock description = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 12, 0, 20), LineHeight = 23 };
-    private readonly TextBlock compatibility = new() { Margin = new Thickness(0, 10, 0, 0), TextWrapping = TextWrapping.Wrap };
-    private readonly TextBlock availability = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 16), LineHeight = 22 };
+    private readonly ComboBox scope = new() { Width = 144, Height = 36, Margin = new Thickness(0, 0, 8, 0) };
+    private readonly TextBox search = new() { MinWidth = 160, Height = 36, Tag = "Search mods…", ToolTip = "Search mod names and descriptions" };
+    private readonly CheckBox compatibleOnly = new() { Content = "Compatible only", IsChecked = true, Margin = new Thickness(12, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
+    private readonly DataGrid mods = new() { AutoGenerateColumns = false, IsReadOnly = true, CanUserAddRows = false, HeadersVisibility = DataGridHeadersVisibility.Column, SelectionMode = DataGridSelectionMode.Single, SelectionUnit = DataGridSelectionUnit.FullRow, RowHeight = 48, GridLinesVisibility = DataGridGridLinesVisibility.Horizontal };
+    private readonly ComboBox versions = new() { Margin = new Thickness(0, 8, 0, 16), DisplayMemberPath = "Label" };
+    private readonly TextBlock heading = new() { FontSize = 24, FontWeight = FontWeights.SemiBold };
+    private readonly TextBlock description = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 16), LineHeight = 22 };
+    private readonly TextBlock compatibility = new() { Margin = new Thickness(0, 8, 0, 0), TextWrapping = TextWrapping.Wrap };
+    private readonly TextBlock availability = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 16), LineHeight = 20 };
     private readonly TextBlock message = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 0), LineHeight = 22 };
     private readonly TextBlock catalogStatus = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 10, 0, 0) };
-    private readonly TextBlock updateStatus = new() { VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 14, 8) };
+    private readonly TextBlock updateStatus = new() { VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 16, 0) };
+    private readonly Button browse = Button("Browse…");
+    private readonly ScrollViewer detailScroll = new() { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
     private readonly Button checkUpdate = Button("Check for updates"), installUpdate = Button("Install update");
     private ManagerRelease? managerUpdate;
     private bool updateChecking, updateHandoff;
@@ -49,19 +51,21 @@ internal sealed class MainWindow : Window
         Icon = System.Windows.Media.Imaging.BitmapFrame.Create(new Uri("pack://application:,,,/Assets/qmm.ico"));
         themes = new Themes(this, Path.Combine(userData, "settings.json")); online = new OnlineCatalog(userData);
         SetResourceReference(BackgroundProperty, "Page"); SetResourceReference(ForegroundProperty, "Text"); FontFamily = new System.Windows.Media.FontFamily("Segoe UI"); FontSize = 14;
-        var root = new DockPanel { Margin = new Thickness(28) }; Content = root;
+        var root = new DockPanel { Margin = new Thickness(24) }; Content = root;
         var top = new StackPanel(); DockPanel.SetDock(top, Dock.Top); root.Children.Add(top);
         var titleRow = new DockPanel(); top.Children.Add(titleRow);
         var appearance = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
         appearance.Children.Add(Muted("Theme", new Thickness(0, 0, 12, 0))); appearance.Children.Add(theme); DockPanel.SetDock(appearance, Dock.Right); titleRow.Children.Add(appearance);
-        titleRow.Children.Add(new TextBlock { Text = AppIdentity.Name, FontSize = 30, FontWeight = FontWeights.SemiBold });
-        top.Children.Add(Muted("Find mods for your Designer.", new Thickness(0, 5, 0, 24)));
+        titleRow.Children.Add(new TextBlock { Text = AppIdentity.Name, FontSize = 28, FontWeight = FontWeights.SemiBold });
+        top.Children.Add(Muted("Find mods for your Designer.", new Thickness(0, 4, 0, 16)));
+        top.Children.Add(Muted("Designer installation", new Thickness(0, 0, 0, 8)));
         var targetRow = new DockPanel(); top.Children.Add(targetRow);
-        var browse = Button("Browse…"); var refresh = Button("Refresh"); DockPanel.SetDock(refresh, Dock.Right); targetRow.Children.Add(refresh); DockPanel.SetDock(browse, Dock.Right); targetRow.Children.Add(browse); targetRow.Children.Add(target);
+        var refresh = Button("Refresh"); refresh.Margin = new Thickness(); browse.Margin = new Thickness(0, 0, 8, 0); DockPanel.SetDock(refresh, Dock.Right); targetRow.Children.Add(refresh); DockPanel.SetDock(browse, Dock.Right); targetRow.Children.Add(browse); targetRow.Children.Add(target);
         top.Children.Add(compatibility);
 
-        var footer = new StackPanel { Margin = new Thickness(0, 18, 0, 0) }; DockPanel.SetDock(footer, Dock.Bottom); root.Children.Add(footer);
-        var updateRow = new DockPanel { Margin = new Thickness(0, 0, 0, 10) }; footer.Children.Add(updateRow);
+        var footer = new StackPanel { Margin = new Thickness(0, 16, 0, 0) }; DockPanel.SetDock(footer, Dock.Bottom); root.Children.Add(footer);
+        var updateRow = new DockPanel { Margin = new Thickness(0, 0, 0, 16) }; footer.Children.Add(updateRow);
+        checkUpdate.Margin = new Thickness(); installUpdate.Margin = new Thickness(8, 0, 0, 0); installUpdate.Tag = "Primary";
         DockPanel.SetDock(installUpdate, Dock.Right); updateRow.Children.Add(installUpdate); DockPanel.SetDock(checkUpdate, Dock.Right); updateRow.Children.Add(checkUpdate); updateRow.Children.Add(updateStatus);
         installUpdate.Visibility = Visibility.Collapsed; updateStatus.Text = AppIdentity.Name + " " + AppUpdate.CurrentVersion; updateStatus.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
         var footerButtons = new StackPanel { Orientation = Orientation.Horizontal }; footer.Children.Add(footerButtons);
@@ -70,10 +74,10 @@ internal sealed class MainWindow : Window
         cancel.Visibility = Visibility.Collapsed; cancel.Click += (_, _) => network?.Cancel(); footer.Children.Add(message);
         footer.Children.Add(Muted("Close Designer before changing mods. Changes take effect the next time it starts.", new Thickness(0, 8, 0, 0)));
 
-        var body = new Grid { Margin = new Thickness(0, 22, 0, 0) }; root.Children.Add(body);
+        var body = new Grid { Margin = new Thickness(0, 24, 0, 0) }; root.Children.Add(body);
         body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(3, GridUnitType.Star) }); body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(2, GridUnitType.Star) });
-        var listing = new DockPanel(); var listCard = Card(listing); listCard.Margin = new Thickness(0, 0, 18, 0); body.Children.Add(listCard);
-        var filters = new DockPanel { Margin = new Thickness(0, 0, 0, 14) }; DockPanel.SetDock(filters, Dock.Top); listing.Children.Add(filters);
+        var listing = new DockPanel(); var listCard = Card(listing); listCard.Margin = new Thickness(0, 0, 16, 0); body.Children.Add(listCard);
+        var filters = new DockPanel { Margin = new Thickness(0, 0, 0, 16) }; DockPanel.SetDock(filters, Dock.Top); listing.Children.Add(filters);
         scope.Items.Add("Browse mods"); scope.Items.Add("Installed mods"); scope.SelectedIndex = 0;
         DockPanel.SetDock(scope, Dock.Left); filters.Children.Add(scope); DockPanel.SetDock(compatibleOnly, Dock.Right); filters.Children.Add(compatibleOnly); filters.Children.Add(search);
         var catalogFooter = new StackPanel { Margin = new Thickness(0, 16, 0, 0) }; DockPanel.SetDock(catalogFooter, Dock.Bottom); listing.Children.Add(catalogFooter);
@@ -82,12 +86,14 @@ internal sealed class MainWindow : Window
         foreach (var column in new[] { ("Mod", "Name", 2.0), ("Installed", "Installed", 1.0), ("Available", "Available", 1.0), ("Status", "Status", 1.5) })
             mods.Columns.Add(new DataGridTextColumn { Header = column.Item1, Binding = new Binding(column.Item2), Width = new DataGridLength(column.Item3, DataGridLengthUnitType.Star) });
 
-        var detail = new StackPanel(); var detailCard = Card(new ScrollViewer { Content = detail, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled }); Grid.SetColumn(detailCard, 1); body.Children.Add(detailCard);
+        var detail = new StackPanel(); detailScroll.Content = detail; var detailCard = Card(detailScroll); Grid.SetColumn(detailCard, 1); body.Children.Add(detailCard);
         detail.Children.Add(heading); detail.Children.Add(description); detail.Children.Add(availability); detail.Children.Add(Muted("Version", new Thickness())); detail.Children.Add(versions);
-        var actions = new System.Windows.Controls.Primitives.UniformGrid { Columns = 2 }; detail.Children.Add(actions);
-        foreach (var button in new[] { install, adopt, toggle, remove }) actions.Children.Add(button);
-        install.SetResourceReference(BackgroundProperty, "Accent"); install.SetResourceReference(ForegroundProperty, "AccentText");
-        repository.Margin = new Thickness(0, 14, 0, 0); repository.HorizontalAlignment = HorizontalAlignment.Left; detail.Children.Add(repository);
+        var actions = new Grid(); actions.ColumnDefinitions.Add(new ColumnDefinition()); actions.ColumnDefinitions.Add(new ColumnDefinition()); actions.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); actions.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); detail.Children.Add(actions);
+        var actionButtons = new[] { install, adopt, toggle, remove };
+        for (int i = 0; i < actionButtons.Length; i++) { var button = actionButtons[i]; button.Margin = new Thickness(0, 0, i % 2 == 0 ? 8 : 0, 8); Grid.SetColumn(button, i % 2); Grid.SetRow(button, i / 2); actions.Children.Add(button); }
+        install.Tag = "Primary";
+        repository.Margin = new Thickness(0, 8, 0, 0); repository.HorizontalAlignment = HorizontalAlignment.Left; detail.Children.Add(repository);
+        foreach (var (control, name) in new (DependencyObject, string)[] { (target, "Designer installation"), (theme, "Theme"), (scope, "Mod list"), (search, "Search mods"), (versions, "Mod version"), (mods, "Available mods") }) System.Windows.Automation.AutomationProperties.SetName(control, name);
 
         theme.ItemsSource = new[] { new ThemeChoice("Follow System", Appearance.System), new ThemeChoice("Light", Appearance.Light), new ThemeChoice("Dark", Appearance.Dark) };
         theme.SelectedItem = theme.Items.Cast<ThemeChoice>().Single(t => t.Value == themes.Settings.Theme);
@@ -109,7 +115,7 @@ internal sealed class MainWindow : Window
     }
     private static Button Button(string text) => new() { Content = text };
     private static TextBlock Muted(string text, Thickness margin) { var label = new TextBlock { Text = text, Margin = margin, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap }; label.SetResourceReference(TextBlock.ForegroundProperty, "Muted"); return label; }
-    private static Border Card(UIElement child) { var card = new Border { CornerRadius = new CornerRadius(8), Padding = new Thickness(18), Child = child }; card.SetResourceReference(BackgroundProperty, "Card"); return card; }
+    private static Border Card(UIElement child) { var card = new Border { CornerRadius = new CornerRadius(8), Padding = new Thickness(16), Child = child }; card.SetResourceReference(BackgroundProperty, "Card"); return card; }
     private static void Open(string path) => Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
     internal void SelectTarget(string path) { refreshing = true; if (!target.Items.Contains(path)) target.Items.Add(path); target.SelectedItem = path; refreshing = false; Refresh(); }
     private bool IsCompatible(CatalogRelease release) => OnlineCatalog.Compatible(release, hostHash, commonHash);
@@ -128,7 +134,7 @@ internal sealed class MainWindow : Window
         try
         {
             LoadLibrary(); inspection = new Manager(target.Text).Inspect(packages); hostHash = Catalog.HostHash; commonHash = Catalog.CommonHash;
-            compatibility.Text = "Q-SYS Designer 10.5 · " + (inspection.Running ? "Designer is running" : "Ready to manage mods"); compatibility.SetResourceReference(TextBlock.ForegroundProperty, "Good");
+            compatibility.Text = "Q-SYS Designer 10.5 · " + (inspection.Running ? "Designer is running" : "Ready to manage mods"); compatibility.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
             message.Text = inspection.Pending is not null ? "An interrupted change needs recovery before you can continue." : "Choose a mod to see its available versions.";
             if (libraryErrors.Length > 0) message.Text += "\nSome local packages could not be read: " + libraryErrors;
         }
@@ -182,7 +188,7 @@ internal sealed class MainWindow : Window
         repository.IsEnabled = row is not null; cancel.Visibility = busy && !applying ? Visibility.Visible : Visibility.Collapsed;
         checkUpdate.IsEnabled = !busy && !updateChecking; installUpdate.IsEnabled = !busy && !updateChecking && managerUpdate is not null;
         availability.Text = row is null ? "" : supported ? "Compatible with your Designer" : "This version is not compatible with the selected Designer.";
-        availability.SetResourceReference(TextBlock.ForegroundProperty, supported ? "Good" : "Bad");
+        availability.SetResourceReference(TextBlock.ForegroundProperty, supported ? "Muted" : "Bad");
     }
     private async Task FetchCatalog()
     {
@@ -270,6 +276,29 @@ internal sealed class MainWindow : Window
     }
     internal object SmokeResult() => new { compatible = inspection is not null, rows = mods.Items.Count, packages = packages.Count, running = inspection?.Running, theme = themes.Settings.Theme.ToString(), dark = themes.Dark, mods = mods.Items.Cast<ModRow>().ToArray(), message = message.Text };
     internal Task SmokeFetch() => FetchCatalog();
+    internal string[] SmokeLayoutChecks(bool minimum)
+    {
+        var result = new List<string>(); UpdateLayout();
+        void Check(bool value, string label) { if (!value) throw new Exception(label); result.Add(label); }
+        Rect Bounds(FrameworkElement item) => new(item.TranslatePoint(new Point(), this), item.RenderSize);
+        Check(Math.Abs(Bounds(browse).Left - Bounds(target).Right - 8) < 1, "Installation selector has an 8-unit gap before Browse");
+        Check(Math.Abs(target.ActualHeight - browse.ActualHeight) < 1 && Math.Abs(target.ActualHeight - 36) < 1, "Installation controls share a 36-unit height");
+        Check(Math.Abs(search.ActualHeight - scope.ActualHeight) < 1, "Search and list selector share a height");
+        Check(Bounds(search).Right <= Bounds(compatibleOnly).Left - 8, "Search and compatibility filter do not overlap");
+        var placeholder = (TextBlock)search.Template.FindName("Placeholder", search);
+        search.Text = ""; UpdateLayout();
+        Point hint = placeholder.TranslatePoint(new Point(), search);
+        Check(Math.Abs(hint.Y + placeholder.ActualHeight / 2 - search.ActualHeight / 2) < 1, "Search placeholder is vertically centered");
+        search.Text = "snapshot"; UpdateLayout(); Rect caret = search.GetRectFromCharacterIndex(0);
+        Check(!caret.IsEmpty && Math.Abs(caret.Top + caret.Height / 2 - search.ActualHeight / 2) < 1, "Typed search text is vertically centered");
+        Check(Math.Abs(caret.Left - hint.X) < 1, "Typed text and placeholder share their left inset");
+        search.Text = ""; UpdateLayout();
+        if (!minimum) Check(detailScroll.ScrollableHeight < 1, "All mod detail actions fit at the default window size");
+        else { detailScroll.ScrollToBottom(); UpdateLayout(); Check(Bounds(repository).Bottom <= Bounds(detailScroll).Bottom + 1, "Scrolling reveals the final detail action at minimum size"); detailScroll.ScrollToTop(); UpdateLayout(); }
+        Check(System.Windows.Automation.AutomationProperties.GetName(search) == "Search mods", "Search has a persistent accessible name");
+        Check(System.Windows.Media.VisualTreeHelper.GetDescendantBounds((System.Windows.Media.Visual)Content).Width <= ((FrameworkElement)Content).ActualWidth + 1, "Content fits the window width");
+        return result.ToArray();
+    }
     private async Task CheckManagerUpdate()
     {
         if (busy || updateChecking) return; updateChecking = true; Buttons(); updateStatus.Text = "Checking for a Q-SYS Mod Manager update…";

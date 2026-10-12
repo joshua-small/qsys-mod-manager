@@ -44,9 +44,18 @@ internal static class Program
                     window.SelectTarget(args[1]); await Task.Delay(350); window.UpdateLayout();
                     if (args[4] == "-") await window.SmokeFetch();
                     File.WriteAllBytes(Path.Combine(output, "checks.json"), Data.Bytes(window.SmokeChecks()));
-                    var bitmap = new RenderTargetBitmap((int)window.ActualWidth, (int)window.ActualHeight, 96, 96, PixelFormats.Pbgra32); bitmap.Render(window);
-                    var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(bitmap));
-                    using (var stream = File.Create(Path.Combine(output, "manager.png"))) encoder.Save(stream);
+                    void Capture(string name)
+                    {
+                        window.UpdateLayout();
+                        var bitmap = new RenderTargetBitmap((int)window.ActualWidth, (int)window.ActualHeight, 96, 96, PixelFormats.Pbgra32); bitmap.Render(window);
+                        var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(bitmap));
+                        using var stream = File.Create(Path.Combine(output, name)); encoder.Save(stream);
+                    }
+                    File.WriteAllBytes(Path.Combine(output, "layout.json"), Data.Bytes(window.SmokeLayoutChecks(false)));
+                    Capture("manager.png");
+                    window.Width = window.MinWidth; window.Height = window.MinHeight; await Task.Delay(150); window.UpdateLayout();
+                    File.WriteAllBytes(Path.Combine(output, "layout-minimum.json"), Data.Bytes(window.SmokeLayoutChecks(true)));
+                    Capture("manager-minimum.png");
                     File.WriteAllBytes(Path.Combine(output, "ui.json"), Data.Bytes(window.SmokeResult()));
                 }
                 catch (Exception error) { File.WriteAllText(Path.Combine(output, "error.txt"), error.ToString()); }
