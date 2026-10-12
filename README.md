@@ -11,4 +11,6 @@ Use **Installed mods** to enable, disable, remove, or change a mod's version. **
 
 Choose **Light**, **Dark**, or **Follow System** from the Theme menu. Your choice is remembered.
 
+Mod Manager checks for its own updates when it opens. You can also choose **Check for updates**. When an update is available, choose **Install update**, then **Update & restart** and allow the administrator prompt. Your settings and mods are kept; Designer can stay open.
+
 Currently supports the compatible Q-SYS Designer 10.5 build on Windows. These are unofficial Designer extensions; nothing is installed on a Core.

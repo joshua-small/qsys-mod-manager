@@ -27,6 +27,10 @@ internal sealed class MainWindow : Window
     private readonly TextBlock availability = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 16), LineHeight = 22 };
     private readonly TextBlock message = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 0), LineHeight = 22 };
     private readonly TextBlock catalogStatus = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 10, 0, 0) };
+    private readonly TextBlock updateStatus = new() { VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 14, 8) };
+    private readonly Button checkUpdate = Button("Check for updates"), installUpdate = Button("Install update");
+    private ManagerRelease? managerUpdate;
+    private bool updateChecking, updateHandoff;
     private readonly Button install = Button("Install"), adopt = Button("Manage existing"), toggle = Button("Disable"), remove = Button("Remove"), undo = Button("Undo last change"), refreshCatalog = Button("Refresh catalog"), cancel = Button("Cancel"), repository = Button("View on GitHub");
     private readonly string userData = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "QDS Mod Manager");
     private readonly List<ModPackage> packages = new();
@@ -41,7 +45,7 @@ internal sealed class MainWindow : Window
 
     internal MainWindow()
     {
-        Title = "QDS Mod Manager · 0.2"; Width = 1220; Height = 810; MinWidth = 1060; MinHeight = 720;
+        Title = "QDS Mod Manager · " + AppUpdate.CurrentVersion; Width = 1220; Height = 860; MinWidth = 1060; MinHeight = 770;
         themes = new Themes(this, Path.Combine(userData, "settings.json")); online = new OnlineCatalog(userData);
         SetResourceReference(BackgroundProperty, "Page"); SetResourceReference(ForegroundProperty, "Text"); FontFamily = new System.Windows.Media.FontFamily("Segoe UI"); FontSize = 14;
         var root = new DockPanel { Margin = new Thickness(28) }; Content = root;
@@ -56,6 +60,9 @@ internal sealed class MainWindow : Window
         top.Children.Add(compatibility);
 
         var footer = new StackPanel { Margin = new Thickness(0, 18, 0, 0) }; DockPanel.SetDock(footer, Dock.Bottom); root.Children.Add(footer);
+        var updateRow = new DockPanel { Margin = new Thickness(0, 0, 0, 10) }; footer.Children.Add(updateRow);
+        DockPanel.SetDock(installUpdate, Dock.Right); updateRow.Children.Add(installUpdate); DockPanel.SetDock(checkUpdate, Dock.Right); updateRow.Children.Add(checkUpdate); updateRow.Children.Add(updateStatus);
+        installUpdate.Visibility = Visibility.Collapsed; updateStatus.Text = "Mod Manager " + AppUpdate.CurrentVersion; updateStatus.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
         var footerButtons = new StackPanel { Orientation = Orientation.Horizontal }; footer.Children.Add(footerButtons);
         var import = Button("Import package…"); var backups = Button("Open backups");
         foreach (var button in new[] { import, undo, backups, cancel }) footerButtons.Children.Add(button);
@@ -92,11 +99,12 @@ internal sealed class MainWindow : Window
         toggle.Click += async (_, _) => await Change((mods.SelectedItem as ModRow)?.Local?.Enabled is true ? "Disable" : "Enable");
         remove.Click += async (_, _) => await Change("Remove"); undo.Click += async (_, _) => await Change(inspection?.Pending is not null ? "Recover" : "Undo");
         refreshCatalog.Click += async (_, _) => await FetchCatalog(); import.Click += (_, _) => Import();
+        checkUpdate.Click += async (_, _) => await CheckManagerUpdate(); installUpdate.Click += async (_, _) => await InstallManagerUpdate();
         backups.Click += (_, _) => { try { var path = Path.Combine(target.Text, ".qds-mod-manager"); if (Directory.Exists(path)) Open(path); else message.Text = "Backups appear after your first change."; } catch (Exception e) { message.Text = e.Message; } };
         repository.Click += (_, _) => { if (mods.SelectedItem is ModRow row) Open("https://github.com/" + OnlineCatalog.Repository(row.Id)); };
-        Closing += (_, args) => { if (applying) { args.Cancel = true; message.Text = "Please wait for the current change to finish."; } else network?.Cancel(); };
+        Closing += (_, args) => { if (applying && !updateHandoff) { args.Cancel = true; message.Text = "Please wait for the current change to finish."; } else network?.Cancel(); };
         Closed += (_, _) => { themes.Dispose(); online.Dispose(); };
-        Loaded += async (_, _) => { if (target.Items.Count == 0) { foreach (var path in Manager.Discover()) target.Items.Add(path); if (target.Items.Count > 0) target.SelectedIndex = 0; } Refresh(); if (!smoke) await FetchCatalog(); };
+        Loaded += async (_, _) => { if (target.Items.Count == 0) { foreach (var path in Manager.Discover()) target.Items.Add(path); if (target.Items.Count > 0) target.SelectedIndex = 0; } Refresh(); if (!smoke) { await FetchCatalog(); await CheckManagerUpdate(); var notice = AppUpdate.ConsumeNotice(); if (notice is not null) message.Text = notice; } };
     }
     private static Button Button(string text) => new() { Content = text };
     private static TextBlock Muted(string text, Thickness margin) { var label = new TextBlock { Text = text, Margin = margin, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap }; label.SetResourceReference(TextBlock.ForegroundProperty, "Muted"); return label; }
@@ -171,6 +179,7 @@ internal sealed class MainWindow : Window
         undo.Content = inspection?.Pending is not null ? "Recover interrupted change" : "Undo last change"; undo.IsEnabled = !busy && inspection is not null && (inspection.Pending is not null || inspection.CanUndo);
         target.IsEnabled = mods.IsEnabled = versions.IsEnabled = scope.IsEnabled = search.IsEnabled = compatibleOnly.IsEnabled = refreshCatalog.IsEnabled = !busy;
         repository.IsEnabled = row is not null; cancel.Visibility = busy && !applying ? Visibility.Visible : Visibility.Collapsed;
+        checkUpdate.IsEnabled = !busy && !updateChecking; installUpdate.IsEnabled = !busy && !updateChecking && managerUpdate is not null;
         availability.Text = row is null ? "" : supported ? "Compatible with your Designer" : "This version is not compatible with the selected Designer.";
         availability.SetResourceReference(TextBlock.ForegroundProperty, supported ? "Good" : "Bad");
     }
@@ -200,15 +209,15 @@ internal sealed class MainWindow : Window
         }
         await Change("Install");
     }
-    private bool Preview(string title, string details)
+    private bool Preview(string title, string details, string? location = null, string action = "Apply change")
     {
         var dialog = new Window { Owner = this, Title = "Preview change", Width = 540, SizeToContent = SizeToContent.Height, ResizeMode = ResizeMode.NoResize, WindowStartupLocation = WindowStartupLocation.CenterOwner };
         var panel = new StackPanel { Margin = new Thickness(26) }; dialog.Content = panel;
         panel.Children.Add(new TextBlock { Text = title, FontSize = 22, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
-        panel.Children.Add(Muted(target.Text, new Thickness(0, 14, 0, 14)));
+        panel.Children.Add(Muted(location ?? target.Text, new Thickness(0, 14, 0, 14)));
         panel.Children.Add(new TextBlock { Text = details, TextWrapping = TextWrapping.Wrap, LineHeight = 23 });
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 22, 0, 0) }; panel.Children.Add(buttons);
-        var back = Button("Cancel"); back.IsCancel = true; var apply = Button("Apply change"); apply.IsDefault = true; buttons.Children.Add(back); buttons.Children.Add(apply); apply.Click += (_, _) => dialog.DialogResult = true;
+        var back = Button("Cancel"); back.IsCancel = true; var apply = Button(action); apply.IsDefault = true; buttons.Children.Add(back); buttons.Children.Add(apply); apply.Click += (_, _) => dialog.DialogResult = true;
         return dialog.ShowDialog() is true;
     }
     private async Task Change(string action)
@@ -260,6 +269,39 @@ internal sealed class MainWindow : Window
     }
     internal object SmokeResult() => new { compatible = inspection is not null, rows = mods.Items.Count, packages = packages.Count, running = inspection?.Running, theme = themes.Settings.Theme.ToString(), dark = themes.Dark, mods = mods.Items.Cast<ModRow>().ToArray(), message = message.Text };
     internal Task SmokeFetch() => FetchCatalog();
+    private async Task CheckManagerUpdate()
+    {
+        if (busy || updateChecking) return; updateChecking = true; Buttons(); updateStatus.Text = "Checking for a Mod Manager update…";
+        try
+        {
+            using var client = new ManagerReleaseClient(); var release = await client.Latest(default);
+            ShowManagerRelease(release);
+        }
+        catch (Exception error) { managerUpdate = null; installUpdate.Visibility = Visibility.Collapsed; updateStatus.Text = "Couldn't check for updates. " + error.GetBaseException().Message; }
+        finally { updateChecking = false; Buttons(); }
+    }
+    private void ShowManagerRelease(ManagerRelease release)
+    {
+        managerUpdate = release.IsNewerThan(AppUpdate.CurrentVersion) ? release : null;
+        updateStatus.Text = managerUpdate is null ? "Mod Manager " + AppUpdate.CurrentVersion + " · Up to date" : "Mod Manager " + release.Version + " is available";
+        installUpdate.Content = "Install " + release.Version; installUpdate.Visibility = managerUpdate is null ? Visibility.Collapsed : Visibility.Visible;
+    }
+    private async Task InstallManagerUpdate()
+    {
+        if (busy || updateChecking || managerUpdate is not { } release) return;
+        if (!Preview("Update Mod Manager to " + release.Version, "Mod Manager will restart after installation. Your settings, mod packages and installed mods will be kept. Q-SYS Designer can stay open.", AppContext.BaseDirectory, "Update & restart")) return;
+        busy = true; using var cancellation = new CancellationTokenSource(); network = cancellation; Buttons(); message.Text = "Downloading Mod Manager " + release.Version + "…";
+        try
+        {
+            string folder = await AppUpdate.Stage(release, cancellation.Token);
+            applying = true; network = null; Buttons(); message.Text = "Allow the administrator prompt to install the update. Preparing to restart…";
+            using var watcher = AppUpdate.StartWatcher(folder); await AppUpdate.WaitForHandoff(folder, watcher);
+            updateHandoff = true; Application.Current.Shutdown();
+        }
+        catch (OperationCanceledException) { message.Text = "Update download canceled. Nothing was installed."; }
+        catch (Exception error) { message.Text = error.GetBaseException().Message; }
+        finally { busy = applying = false; network = null; Buttons(); }
+    }
     internal string[] SmokeChecks()
     {
         var result = new List<string>();
@@ -273,6 +315,10 @@ internal sealed class MainWindow : Window
         search.Text = ""; Check(mods.Items.Count == 2, "Clearing search restores both mods");
         scope.SelectedIndex = 1; Check(mods.Items.Count == 2, "Installed filter includes both managed mods"); scope.SelectedIndex = 0;
         versions.IsDropDownOpen = true; UpdateLayout(); Check(versions.IsDropDownOpen, "Version dropdown opens"); versions.IsDropDownOpen = false;
+        var future = new ManagerRelease("99.0.0", "v99.0.0", "https://github.com/joshua-small/qsys-mod-manager/releases/download/v99.0.0/QDS-Mod-Manager-99.0.0-win-x64.zip", new string('0', 64), 1);
+        ShowManagerRelease(future); Buttons(); Check(installUpdate.IsVisible && installUpdate.IsEnabled, "New manager release enables install button even while QDS is running");
+        ShowManagerRelease(future with { Version = AppUpdate.CurrentVersion }); Buttons(); Check(installUpdate.Visibility == Visibility.Collapsed, "Current manager version hides update action");
+        updateStatus.Text = "Mod Manager " + AppUpdate.CurrentVersion;
         return result.ToArray();
     }
 }

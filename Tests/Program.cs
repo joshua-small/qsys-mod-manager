@@ -3,6 +3,18 @@ using System.IO.Compression;
 using System.Text;
 using QdsModManager;
 
+if (args.Length == 4 && args[0] == "--self-update-tests") { await SelfUpdateTests.Run(args[1], args[2], args[3]); return; }
+if (args.Length == 3 && args[0] == "--self-update-crash")
+{
+    var updater = new SelfUpdater(_ => false) { AfterWrite = _ => Environment.Exit(73) };
+    updater.Apply(Data.Read<SelfUpdatePlan>(File.ReadAllBytes(args[1])), File.ReadAllBytes(args[2])); return;
+}
+if (args.Length == 1 && args[0] == "--manager-online")
+{
+    using var client = new ManagerReleaseClient(); var release = await client.Latest(default);
+    await client.VerifyPublished(release, default); var archive = await client.Download(release, default);
+    Console.WriteLine($"Verified published manager {release.Version}: {archive.Length} bytes, {release.Sha256}"); return;
+}
 byte[] host = Encoding.UTF8.GetBytes("test host identity"), common = Encoding.UTF8.GetBytes("test common identity");
 if (args.Length == 2 && args[0] == "--online")
 {

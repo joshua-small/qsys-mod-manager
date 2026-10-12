@@ -11,6 +11,8 @@ internal static class Program
     [STAThread]
     public static int Main(string[] args)
     {
+        if (args.Length == 2 && args[0].StartsWith("--self-update-", StringComparison.Ordinal))
+            return AppUpdate.Run(args[0], args[1]).GetAwaiter().GetResult();
         if (args.Length == 4 && args[0] == "--apply" && args[2] == "--result")
         {
             // An elevated helper only accepts the UI's paired request/receipt
