@@ -18,6 +18,7 @@ internal sealed class Themes : IDisposable
     {
         this.owner = owner; this.path = path; Settings = Preferences.Load(path);
         Application.Current.Resources.MergedDictionaries.Add((ResourceDictionary)XamlReader.Parse(Styles));
+        Application.Current.Resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri("pack://application:,,,/Assets/Icons.xaml") });
         Apply(); owner.SourceInitialized += (_, _) => TitleBar();
         SystemEvents.UserPreferenceChanged += SystemChanged;
     }
@@ -56,19 +57,26 @@ internal sealed class Themes : IDisposable
         <Setter Property="UseLayoutRounding" Value="True"/><Setter Property="SnapsToDevicePixels" Value="True"/>
       </Style>
       <Style TargetType="Button">
+        <Setter Property="ToolTipService.ShowOnDisabled" Value="True"/>
         <Setter Property="Background" Value="{DynamicResource Input}"/><Setter Property="Foreground" Value="{DynamicResource Text}"/><Setter Property="BorderBrush" Value="{DynamicResource Line}"/>
         <Setter Property="BorderThickness" Value="1"/><Setter Property="Padding" Value="12,6"/><Setter Property="MinHeight" Value="36"/><Setter Property="Margin" Value="0,0,8,8"/><Setter Property="FocusVisualStyle" Value="{StaticResource KeyboardFocus}"/>
         <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button">
           <Border x:Name="Surface" CornerRadius="4" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" Padding="{TemplateBinding Padding}"><ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" RecognizesAccessKey="True"/></Border>
           <ControlTemplate.Triggers>
+            <Trigger Property="Tag" Value="Subtle"><Setter TargetName="Surface" Property="Background" Value="Transparent"/><Setter TargetName="Surface" Property="BorderBrush" Value="Transparent"/></Trigger>
             <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Surface" Property="Background" Value="{DynamicResource Hover}"/><Setter TargetName="Surface" Property="BorderBrush" Value="{DynamicResource Accent}"/></Trigger>
             <Trigger Property="IsPressed" Value="True"><Setter TargetName="Surface" Property="Background" Value="{DynamicResource Divider}"/></Trigger>
             <Trigger Property="Tag" Value="Primary"><Setter TargetName="Surface" Property="Background" Value="{DynamicResource Accent}"/><Setter TargetName="Surface" Property="BorderBrush" Value="{DynamicResource Accent}"/><Setter Property="Foreground" Value="{DynamicResource AccentText}"/></Trigger>
             <MultiTrigger><MultiTrigger.Conditions><Condition Property="Tag" Value="Primary"/><Condition Property="IsMouseOver" Value="True"/></MultiTrigger.Conditions><Setter TargetName="Surface" Property="Background" Value="{DynamicResource AccentHover}"/></MultiTrigger>
             <MultiTrigger><MultiTrigger.Conditions><Condition Property="Tag" Value="Primary"/><Condition Property="IsPressed" Value="True"/></MultiTrigger.Conditions><Setter TargetName="Surface" Property="Background" Value="{DynamicResource AccentPressed}"/></MultiTrigger>
             <Trigger Property="IsEnabled" Value="False"><Setter TargetName="Surface" Property="Background" Value="{DynamicResource Disabled}"/><Setter TargetName="Surface" Property="BorderBrush" Value="{DynamicResource Divider}"/><Setter TargetName="Surface" Property="Opacity" Value="1"/><Setter Property="Foreground" Value="{DynamicResource DisabledText}"/></Trigger>
+            <MultiTrigger><MultiTrigger.Conditions><Condition Property="Tag" Value="Subtle"/><Condition Property="IsEnabled" Value="False"/></MultiTrigger.Conditions><Setter TargetName="Surface" Property="Background" Value="Transparent"/><Setter TargetName="Surface" Property="BorderBrush" Value="Transparent"/></MultiTrigger>
           </ControlTemplate.Triggers>
         </ControlTemplate></Setter.Value></Setter>
+      </Style>
+      <Style TargetType="Hyperlink">
+        <Setter Property="Foreground" Value="{DynamicResource Text}"/><Setter Property="TextDecorations" Value="{x:Null}"/><Setter Property="Cursor" Value="Hand"/>
+        <Style.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter Property="Foreground" Value="{DynamicResource Muted}"/></Trigger><Trigger Property="IsEnabled" Value="False"><Setter Property="Foreground" Value="{DynamicResource DisabledText}"/></Trigger></Style.Triggers>
       </Style>
       <Style TargetType="TextBox">
         <Setter Property="Background" Value="{DynamicResource Input}"/><Setter Property="Foreground" Value="{DynamicResource Text}"/><Setter Property="CaretBrush" Value="{DynamicResource Text}"/><Setter Property="BorderBrush" Value="{DynamicResource Line}"/>

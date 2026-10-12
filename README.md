@@ -9,6 +9,8 @@ Find, install, and manage mods for Q-SYS Designer.
 
 Use **Installed mods** to enable, disable, remove, or change a mod's version. **Undo last change** restores the previous setup. **Manage existing** registers an already installed, matching mod. You can also import a `.qdsmod` file.
 
+Hover over an unavailable mod action to see why. **View on GitHub** opens the selected mod's repository in your browser.
+
 Choose **Light**, **Dark**, or **Follow System** from the Theme menu. Your choice is remembered.
 
 Q-SYS Mod Manager checks for its own updates when it opens. You can also choose **Check for updates**. When an update is available, choose **Install** beside its version, then **Update & restart** and allow the administrator prompt. Your settings and mods are kept; Designer can stay open.
