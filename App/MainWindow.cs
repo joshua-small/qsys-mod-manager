@@ -32,7 +32,7 @@ internal sealed class MainWindow : Window
     private ManagerRelease? managerUpdate;
     private bool updateChecking, updateHandoff;
     private readonly Button install = Button("Install"), adopt = Button("Manage existing"), toggle = Button("Disable"), remove = Button("Remove"), undo = Button("Undo last change"), refreshCatalog = Button("Refresh catalog"), cancel = Button("Cancel"), repository = Button("View on GitHub");
-    private readonly string userData = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "QDS Mod Manager");
+    private readonly string userData = AppIdentity.UserData;
     private readonly List<ModPackage> packages = new();
     private readonly Themes themes;
     private readonly OnlineCatalog online;
@@ -45,7 +45,8 @@ internal sealed class MainWindow : Window
 
     internal MainWindow()
     {
-        Title = "QDS Mod Manager · " + AppUpdate.CurrentVersion; Width = 1220; Height = 860; MinWidth = 1060; MinHeight = 770;
+        Title = AppIdentity.Name + " · " + AppUpdate.CurrentVersion; Width = 1220; Height = 860; MinWidth = 1060; MinHeight = 770;
+        Icon = System.Windows.Media.Imaging.BitmapFrame.Create(new Uri("pack://application:,,,/Assets/qmm.ico"));
         themes = new Themes(this, Path.Combine(userData, "settings.json")); online = new OnlineCatalog(userData);
         SetResourceReference(BackgroundProperty, "Page"); SetResourceReference(ForegroundProperty, "Text"); FontFamily = new System.Windows.Media.FontFamily("Segoe UI"); FontSize = 14;
         var root = new DockPanel { Margin = new Thickness(28) }; Content = root;
@@ -53,7 +54,7 @@ internal sealed class MainWindow : Window
         var titleRow = new DockPanel(); top.Children.Add(titleRow);
         var appearance = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
         appearance.Children.Add(Muted("Theme", new Thickness(0, 0, 12, 0))); appearance.Children.Add(theme); DockPanel.SetDock(appearance, Dock.Right); titleRow.Children.Add(appearance);
-        titleRow.Children.Add(new TextBlock { Text = "QDS Mod Manager", FontSize = 30, FontWeight = FontWeights.SemiBold });
+        titleRow.Children.Add(new TextBlock { Text = AppIdentity.Name, FontSize = 30, FontWeight = FontWeights.SemiBold });
         top.Children.Add(Muted("Find mods for your Designer.", new Thickness(0, 5, 0, 24)));
         var targetRow = new DockPanel(); top.Children.Add(targetRow);
         var browse = Button("Browse…"); var refresh = Button("Refresh"); DockPanel.SetDock(refresh, Dock.Right); targetRow.Children.Add(refresh); DockPanel.SetDock(browse, Dock.Right); targetRow.Children.Add(browse); targetRow.Children.Add(target);
@@ -62,7 +63,7 @@ internal sealed class MainWindow : Window
         var footer = new StackPanel { Margin = new Thickness(0, 18, 0, 0) }; DockPanel.SetDock(footer, Dock.Bottom); root.Children.Add(footer);
         var updateRow = new DockPanel { Margin = new Thickness(0, 0, 0, 10) }; footer.Children.Add(updateRow);
         DockPanel.SetDock(installUpdate, Dock.Right); updateRow.Children.Add(installUpdate); DockPanel.SetDock(checkUpdate, Dock.Right); updateRow.Children.Add(checkUpdate); updateRow.Children.Add(updateStatus);
-        installUpdate.Visibility = Visibility.Collapsed; updateStatus.Text = "Mod Manager " + AppUpdate.CurrentVersion; updateStatus.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
+        installUpdate.Visibility = Visibility.Collapsed; updateStatus.Text = AppIdentity.Name + " " + AppUpdate.CurrentVersion; updateStatus.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
         var footerButtons = new StackPanel { Orientation = Orientation.Horizontal }; footer.Children.Add(footerButtons);
         var import = Button("Import package…"); var backups = Button("Open backups");
         foreach (var button in new[] { import, undo, backups, cancel }) footerButtons.Children.Add(button);
@@ -271,7 +272,7 @@ internal sealed class MainWindow : Window
     internal Task SmokeFetch() => FetchCatalog();
     private async Task CheckManagerUpdate()
     {
-        if (busy || updateChecking) return; updateChecking = true; Buttons(); updateStatus.Text = "Checking for a Mod Manager update…";
+        if (busy || updateChecking) return; updateChecking = true; Buttons(); updateStatus.Text = "Checking for a Q-SYS Mod Manager update…";
         try
         {
             using var client = new ManagerReleaseClient(); var release = await client.Latest(default);
@@ -283,14 +284,14 @@ internal sealed class MainWindow : Window
     private void ShowManagerRelease(ManagerRelease release)
     {
         managerUpdate = release.IsNewerThan(AppUpdate.CurrentVersion) ? release : null;
-        updateStatus.Text = managerUpdate is null ? "Mod Manager " + AppUpdate.CurrentVersion + " · Up to date" : "Mod Manager " + release.Version + " is available";
+        updateStatus.Text = managerUpdate is null ? AppIdentity.Name + " " + AppUpdate.CurrentVersion + " · Up to date" : AppIdentity.Name + " " + release.Version + " is available";
         installUpdate.Content = "Install " + release.Version; installUpdate.Visibility = managerUpdate is null ? Visibility.Collapsed : Visibility.Visible;
     }
     private async Task InstallManagerUpdate()
     {
         if (busy || updateChecking || managerUpdate is not { } release) return;
-        if (!Preview("Update Mod Manager to " + release.Version, "Mod Manager will restart after installation. Your settings, mod packages and installed mods will be kept. Q-SYS Designer can stay open.", AppContext.BaseDirectory, "Update & restart")) return;
-        busy = true; using var cancellation = new CancellationTokenSource(); network = cancellation; Buttons(); message.Text = "Downloading Mod Manager " + release.Version + "…";
+        if (!Preview("Update Q-SYS Mod Manager to " + release.Version, "Q-SYS Mod Manager will restart after installation. Your settings, mod packages and installed mods will be kept. Q-SYS Designer can stay open.", AppContext.BaseDirectory, "Update & restart")) return;
+        busy = true; using var cancellation = new CancellationTokenSource(); network = cancellation; Buttons(); message.Text = "Downloading Q-SYS Mod Manager " + release.Version + "…";
         try
         {
             string folder = await AppUpdate.Stage(release, cancellation.Token);
@@ -318,7 +319,7 @@ internal sealed class MainWindow : Window
         var future = new ManagerRelease("99.0.0", "v99.0.0", "https://github.com/joshua-small/qsys-mod-manager/releases/download/v99.0.0/QDS-Mod-Manager-99.0.0-win-x64.zip", new string('0', 64), 1);
         ShowManagerRelease(future); Buttons(); Check(installUpdate.IsVisible && installUpdate.IsEnabled, "New manager release enables install button even while QDS is running");
         ShowManagerRelease(future with { Version = AppUpdate.CurrentVersion }); Buttons(); Check(installUpdate.Visibility == Visibility.Collapsed, "Current manager version hides update action");
-        updateStatus.Text = "Mod Manager " + AppUpdate.CurrentVersion;
+        updateStatus.Text = AppIdentity.Name + " " + AppUpdate.CurrentVersion;
         return result.ToArray();
     }
 }

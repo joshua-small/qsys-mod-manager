@@ -1,4 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup><OutputType>WinExe</OutputType><TargetFramework>net10.0-windows</TargetFramework><UseWPF>true</UseWPF><EnableWindowsTargeting>true</EnableWindowsTargeting><RuntimeIdentifier>win-x64</RuntimeIdentifier><SelfContained>false</SelfContained><Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings><AssemblyName>QDS Mod Manager</AssemblyName><Version>0.3.1</Version></PropertyGroup>
+  <PropertyGroup><OutputType>WinExe</OutputType><TargetFramework>net10.0-windows</TargetFramework><UseWPF>true</UseWPF><EnableWindowsTargeting>true</EnableWindowsTargeting><RuntimeIdentifier>win-x64</RuntimeIdentifier><SelfContained>false</SelfContained><Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings><AssemblyName>Q-SYS Mod Manager</AssemblyName><Product>Q-SYS Mod Manager</Product><AssemblyTitle>Q-SYS Mod Manager</AssemblyTitle><Description>Find and manage mods for Q-SYS Designer.</Description><Version>0.4.0</Version></PropertyGroup>
   <ItemGroup><ProjectReference Include="../Core/QdsModManager.Core.csproj" /></ItemGroup>
+  <PropertyGroup Condition="'$(LegacyHost)' == 'true'"><AssemblyName>QDS Mod Manager</AssemblyName></PropertyGroup>
+  <PropertyGroup><ApplicationIcon>Assets/qmm.ico</ApplicationIcon></PropertyGroup>
+  <ItemGroup><Resource Include="Assets/qmm.ico" /></ItemGroup>
 </Project>

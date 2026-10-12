@@ -12,10 +12,10 @@ internal sealed record UpdateNotice(string Target, SelfUpdateResult Result);
 internal static class AppUpdate
 {
     internal static string CurrentVersion => Assembly.GetExecutingAssembly().GetName().Version!.ToString(3);
-    internal static string Updates => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "QDS Mod Manager", "Updates");
+    internal static string Updates => Path.Combine(AppIdentity.UserData, "Updates");
     internal static async Task<string> Stage(ManagerRelease release, CancellationToken cancellation)
     {
-        if (!string.Equals(Path.GetFileName(Environment.ProcessPath), "QDS Mod Manager.exe", StringComparison.OrdinalIgnoreCase)) throw new IOException("Open QDS Mod Manager.exe to install an app update.");
+        if (!AppIdentity.IsExecutable(Environment.ProcessPath, AppContext.BaseDirectory)) throw new IOException("Open Q-SYS Mod Manager.exe to install an app update.");
         var plan = new SelfUpdater().Prepare(AppContext.BaseDirectory, release);
         using var client = new ManagerReleaseClient(); byte[] bytes = await client.Download(release, cancellation);
         return StageVerified(plan, bytes);
@@ -27,7 +27,7 @@ internal static class AppUpdate
         string folder = Path.Combine(Updates, plan.Id); SelfUpdater.Guard(folder);
         if (Directory.Exists(folder)) throw new IOException("This update has already been staged."); Directory.CreateDirectory(folder);
         string runner = Path.Combine(folder, "runner"); Directory.CreateDirectory(runner);
-        foreach (var name in ManagerArchive.Names.Take(5))
+        foreach (var name in AppIdentity.Files(AppIdentity.StemAt(AppContext.BaseDirectory)).Take(5))
         {
             // Run a copy of the current updater code so its files can be replaced.
             string source = Path.Combine(AppContext.BaseDirectory, name); SelfUpdater.Guard(source);
@@ -40,7 +40,7 @@ internal static class AppUpdate
     }
     internal static Process StartWatcher(string folder)
     {
-        var start = new ProcessStartInfo(Path.Combine(folder, "runner", "QDS Mod Manager.exe")) { UseShellExecute = false, WindowStyle = ProcessWindowStyle.Hidden };
+        var start = new ProcessStartInfo(AppIdentity.ExecutableAt(Path.Combine(folder, "runner"))) { UseShellExecute = false, WindowStyle = ProcessWindowStyle.Hidden };
         start.ArgumentList.Add("--self-update-watch"); start.ArgumentList.Add(folder);
         return Process.Start(start) ?? throw new IOException("Could not start the update helper.");
     }
@@ -50,11 +50,11 @@ internal static class AppUpdate
         {
             if (File.Exists(Path.Combine(folder, "ready.json"))) return;
             if (File.Exists(Path.Combine(folder, "result.json"))) throw new IOException(Data.Read<SelfUpdateResult>(File.ReadAllBytes(Path.Combine(folder, "result.json"))).Message);
-            if (watcher.HasExited) throw new IOException("The update helper stopped before installation. Mod Manager is still open.");
+            if (watcher.HasExited) throw new IOException("The update helper stopped before installation. Q-SYS Mod Manager is still open.");
             await Task.Delay(100);
         }
         // The helper still waits for this process to exit and times out without writing.
-        throw new IOException("Update handoff timed out. Mod Manager is still open; try again after the helper exits.");
+        throw new IOException("Update handoff timed out. Q-SYS Mod Manager is still open; try again after the helper exits.");
     }
     private static UpdateRequest ReadRequest(string folder)
     {
@@ -92,7 +92,7 @@ internal static class AppUpdate
                 catch (ArgumentException) { }
                 using (parent)
                 {
-                    if (parent is not null && (parent.StartTime.ToUniversalTime().Ticks != request.ParentStart || !string.Equals(parent.MainModule?.FileName, Path.Combine(request.Plan.Target, "QDS Mod Manager.exe"), StringComparison.OrdinalIgnoreCase)))
+                    if (parent is not null && (parent.StartTime.ToUniversalTime().Ticks != request.ParentStart || !AppIdentity.IsExecutable(parent.MainModule?.FileName, request.Plan.Target)))
                         throw new IOException("The original manager process changed.");
                     WriteNew(Path.Combine(folder, "ready.json"), Data.Bytes(new { ready = true }));
                     if (parent is not null) { using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(45)); await parent.WaitForExitAsync(timeout.Token); }
@@ -127,9 +127,9 @@ internal static class AppUpdate
         {
             string notice = Path.Combine(Updates, "last-result.json"); SelfUpdater.Guard(notice);
             File.WriteAllBytes(notice, Data.Bytes(new UpdateNotice(request.Plan.Target, result)));
-            Process.Start(new ProcessStartInfo(Path.Combine(request.Plan.Target, "QDS Mod Manager.exe")) { UseShellExecute = false, WorkingDirectory = request.Plan.Target });
+            Process.Start(new ProcessStartInfo(AppIdentity.ExecutableAt(request.Plan.Target)) { UseShellExecute = false, WorkingDirectory = request.Plan.Target });
         }
-        else if (!result.SafeToStart) MessageBox.Show(result.Message, "Mod Manager update", MessageBoxButton.OK, MessageBoxImage.Error);
+        else if (!result.SafeToStart) MessageBox.Show(result.Message, "Q-SYS Mod Manager update", MessageBoxButton.OK, MessageBoxImage.Error);
         return result.Success ? 0 : 1;
     }
     private static async Task Worker(string mode, string folder)

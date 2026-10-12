@@ -5,14 +5,45 @@ using QdsModManager;
 
 internal static class SelfUpdateTests
 {
+    internal static void Legacy(string oldCore, string oldZip, string primaryZip, string bridgeZip, string output)
+    {
+        output = Path.GetFullPath(output); if (Directory.Exists(output)) throw new IOException("Use a fresh output directory."); Directory.CreateDirectory(output);
+        using var primary = new ZipArchive(File.OpenRead(primaryZip));
+        using var dll = primary.GetEntry(AppIdentity.Name + ".dll")!.Open(); using var buffer = new MemoryStream(); dll.CopyTo(buffer);
+        string version = Version.Parse(ManagerArchive.VerifyAssembly(buffer.ToArray(), AppIdentity.Name, null)).ToString(3);
+        var releases = new[] { primaryZip, bridgeZip }.Select(path => new ManagerRelease(version, "v" + version, $"https://github.com/{ManagerRelease.Repository}/releases/download/v{version}/" + Path.GetFileName(path), Data.HashFile(path), new FileInfo(path).Length)).ToArray();
+        byte[] metadata = Data.Bytes(new { draft = false, prerelease = false, tag_name = "v" + version, assets = releases.Select(r => new { name = new Uri(r.Url).Segments.Last(), browser_download_url = r.Url, size = r.Size, digest = "sha256:" + r.Sha256 }).ToArray() });
+        if (ManagerRelease.Parse(metadata) != releases[0] || ManagerRelease.Parse(metadata, releases[1].Url) != releases[1]) throw new Exception("New client must prefer primary and verify either exact asset.");
+        var context = new System.Runtime.Loader.AssemblyLoadContext("legacy-update-compatibility", true);
+        try
+        {
+            var core = context.LoadFromAssemblyPath(Path.GetFullPath(oldCore));
+            var releaseType = core.GetType("QdsModManager.ManagerRelease", true)!;
+            var parse = releaseType.GetMethod("Parse", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
+            var legacyRelease = parse.Invoke(null, new object[] { metadata })!;
+            if ((string)releaseType.GetProperty("Url")!.GetValue(legacyRelease)! != releases[1].Url) throw new Exception("Legacy client did not select compatibility asset.");
+            // Only extract the fixed, known source layout into a fresh fixture.
+            using (var zip = new ZipArchive(File.OpenRead(oldZip))) foreach (string name in AppIdentity.Files(AppIdentity.LegacyName))
+            { using var entry = zip.GetEntry(name)!.Open(); using var file = File.Create(Path.Combine(output, name)); entry.CopyTo(file); }
+            var updaterType = core.GetType("QdsModManager.SelfUpdater", true)!; var engine = Activator.CreateInstance(updaterType)!;
+            var plan = updaterType.GetMethod("Prepare")!.Invoke(engine, new object[] { output, legacyRelease })!;
+            var result = updaterType.GetMethod("Apply")!.Invoke(engine, new object[] { plan, File.ReadAllBytes(bridgeZip) })!;
+            if (!(bool)result.GetType().GetProperty("Success")!.GetValue(result)!) throw new Exception("Old updater rejected compatibility release.");
+            var bridge = ManagerArchive.Open(File.ReadAllBytes(bridgeZip), releases[1]);
+            if (!bridge.Files.All(p => Data.HashFile(Path.Combine(output, p.Key)) == Data.Hash(p.Value))) throw new Exception("Legacy update bytes did not match.");
+            File.WriteAllBytes(Path.Combine(output, "compatibility-result.json"), Data.Bytes(new { passed = true, legacySelectedBridge = true, newSelectedPrimary = true, legacyUpdaterInstalledBridge = true, version }));
+            Console.WriteLine("Existing updater accepted and installed the compatibility release; new client selects the renamed release.");
+        }
+        finally { context.Unload(); }
+    }
     internal static async Task Run(string oldZip, string newZip, string output)
     {
         output = Path.GetFullPath(output); if (Directory.Exists(output)) throw new IOException("Use a fresh test output directory."); Directory.CreateDirectory(output);
         byte[] oldBytes = File.ReadAllBytes(oldZip), newBytes = File.ReadAllBytes(newZip);
-        ManagerRelease Release(string version, byte[] bytes) => new(version, "v" + version, $"https://github.com/{ManagerRelease.Repository}/releases/download/v{version}/QDS-Mod-Manager-{version}-win-x64.zip", Data.Hash(bytes), bytes.Length);
+        ManagerRelease Release(string version, byte[] bytes) => new(version, "v" + version, $"https://github.com/{ManagerRelease.Repository}/releases/download/v{version}/{(version == "0.2.0" ? "QDS" : "Q-SYS")}-Mod-Manager-{version}-win-x64.zip", Data.Hash(bytes), bytes.Length);
         string candidateVersion;
         using (var zip = new ZipArchive(new MemoryStream(newBytes)))
-        { using var entry = zip.GetEntry("QDS Mod Manager.dll")!.Open(); using var assembly = new MemoryStream(); entry.CopyTo(assembly); candidateVersion = Version.Parse(ManagerArchive.VerifyAssembly(assembly.ToArray(), "QDS Mod Manager", null)).ToString(3); }
+        { string stem = zip.GetEntry(AppIdentity.Name + ".dll") is not null ? AppIdentity.Name : AppIdentity.LegacyName; using var entry = zip.GetEntry(stem + ".dll")!.Open(); using var assembly = new MemoryStream(); entry.CopyTo(assembly); candidateVersion = Version.Parse(ManagerArchive.VerifyAssembly(assembly.ToArray(), stem, null)).ToString(3); }
         var oldRelease = Release("0.2.0", oldBytes); var release = Release(candidateVersion, newBytes);
         var oldArchive = ManagerArchive.Open(oldBytes, oldRelease); var archive = ManagerArchive.Open(newBytes, release); var checks = new List<string>();
         void Check(bool condition, string label) { if (!condition) throw new Exception(label); checks.Add(label); }
@@ -31,6 +62,8 @@ internal static class SelfUpdateTests
         string happy = Fresh("success"); var plan = updater.Prepare(happy, release); var result = updater.Apply(plan, newBytes);
         Check(result.Success && result.SafeToStart, "Portable manager update succeeds");
         Check(archive.Files.All(p => Data.HashFile(Path.Combine(happy, p.Key)) == Data.Hash(p.Value)), "All installed files match published archive");
+        Check(ManagerArchive.KnownNames.Except(archive.Files.Keys).All(n => !File.Exists(Path.Combine(happy, n))), "Obsolete app names removed during migration");
+        Check(AppIdentity.StemAt(happy) == (archive.Files.ContainsKey(AppIdentity.Name + ".exe") ? AppIdentity.Name : AppIdentity.LegacyName), "Renamed or compatibility executable is detected correctly");
         Check(Data.Read<AppFiles>(File.ReadAllBytes(Path.Combine(happy, "installed-files.json"))).Version == candidateVersion, "Installed version recorded");
         Check(plan.Before.Where(p => p.Value is not null).All(p => Data.HashFile(Path.Combine(result.Backup!, "before", p.Key)) == p.Value), "Every original file backed up with exact hash");
         Check(updater.Recover(plan).Success, "Recovery recognizes completed transaction"); Preserved(happy);
@@ -51,7 +84,7 @@ internal static class SelfUpdateTests
         Reject(() => updater.Prepare(wrong, release), "Unexpected installed assembly identity rejected");
         string link = Fresh("linked"); string readme = Path.Combine(link, "README.md"); File.Move(readme, readme + ".original"); File.CreateSymbolicLink(readme, readme + ".original");
         Reject(() => updater.Prepare(link, release), "Linked target file rejected");
-        for (int failure = 1; failure <= 8; failure++)
+        for (int failure = 1; failure <= plan.Before.Count; failure++)
         {
             string root = Fresh("rollback-" + failure); var rollbackPlan = updater.Prepare(root, release); int at = failure;
             var failing = new SelfUpdater(_ => false) { AfterWrite = n => { if (n == at) throw new IOException("Injected write failure"); } };
@@ -70,7 +103,7 @@ internal static class SelfUpdateTests
         var crash = await Interrupted("crash"); Reject(() => updater.Prepare(crash.Target, release), "Pending update blocks new transaction");
         Check(updater.Recover(crash).SafeToStart && SelfUpdater.OriginalIntact(crash), "Recovery after terminated updater restores exact original files"); Preserved(crash.Target);
         var corrupt = await Interrupted("corrupt-backup"); string backup = Path.Combine(corrupt.Target, ".manager-updates", corrupt.Id, "before", "README.md"); File.WriteAllText(backup, "broken backup");
-        string[] tracked = ManagerArchive.Names.Append("installed-files.json").ToArray();
+        string[] tracked = ManagerArchive.KnownNames.Append("installed-files.json").ToArray();
         string[] Snapshot(string root) => tracked.Select(n => File.Exists(Path.Combine(root, n)) ? Data.HashFile(Path.Combine(root, n)) : "absent").ToArray();
         var corruptBefore = Snapshot(corrupt.Target); Reject(() => updater.Recover(corrupt), "Damaged backup stops recovery"); Check(corruptBefore.SequenceEqual(Snapshot(corrupt.Target)), "All backups validated before any recovery write");
         var edited = await Interrupted("edited-during-recovery"); File.WriteAllText(Path.Combine(edited.Target, "README.md"), "owner change"); var editedBefore = Snapshot(edited.Target);
@@ -78,7 +111,7 @@ internal static class SelfUpdateTests
         string noWrite = Fresh("no-write"); Check(updater.Recover(updater.Prepare(noWrite, release)).SafeToStart, "Recovery before first write keeps old manager usable");
         byte[] damaged = newBytes.ToArray(); damaged[^1] ^= 1; Reject(() => ManagerArchive.Open(damaged, release), "Modified download rejected by digest");
         Reject(() => ManagerArchive.Open(newBytes, release with { Size = release.Size + 1 }), "Wrong download size rejected");
-        Reject(() => ManagerArchive.Open(newBytes, Release("0.4.0", newBytes)), "Archive assembly version must match release");
+        Reject(() => ManagerArchive.Open(newBytes, Release("99.0.0", newBytes)), "Archive assembly version must match release");
         Reject(() => (release with { Url = "https://example.com/update.zip" }).Validate(), "Non-project download rejected");
         Reject(() => (release with { Tag = "v0.3.0-beta" }).Validate(), "Prerelease tag rejected");
         byte[] Repack(Action<ZipArchive> edit)
@@ -88,7 +121,7 @@ internal static class SelfUpdateTests
         }
         foreach (string entry in new[] { "../outside.dll", "QDS Mod Manager.dll", "extra.exe" })
         { byte[] altered = Repack(zip => { using var extra = zip.CreateEntry(entry).Open(); extra.WriteByte(1); }); Reject(() => ManagerArchive.Open(altered, Release(candidateVersion, altered)), "Unexpected or duplicate archive entry rejected: " + entry); }
-        byte[] Api(ManagerRelease item, bool pre = false, string? digest = "auto") => Data.Bytes(new { draft = false, prerelease = pre, tag_name = item.Tag, assets = new[] { new { name = $"QDS-Mod-Manager-{item.Version}-win-x64.zip", browser_download_url = item.Url, size = item.Size, digest = digest == "auto" ? "sha256:" + item.Sha256 : digest } } });
+        byte[] Api(ManagerRelease item, bool pre = false, string? digest = "auto") => Data.Bytes(new { draft = false, prerelease = pre, tag_name = item.Tag, assets = new[] { new { name = new Uri(item.Url).Segments.Last(), browser_download_url = item.Url, size = item.Size, digest = digest == "auto" ? "sha256:" + item.Sha256 : digest } } });
         using (var client = new ManagerReleaseClient(new HttpClient(new Handler(req =>
         {
             Check(req.RequestUri!.ToString() == ManagerReleaseClient.Api + "latest" || req.RequestUri.ToString() == ManagerReleaseClient.Api + "tags/" + release.Tag || req.RequestUri.ToString() == release.Url, "Only expected release endpoints requested");

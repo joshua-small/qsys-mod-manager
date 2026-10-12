@@ -11,14 +11,14 @@ internal sealed record AppUpdateJournal(SelfUpdatePlan Plan, Dictionary<string, 
 
 public sealed class SelfUpdater
 {
-    private static readonly string[] Owned = ManagerArchive.Names.Append("installed-files.json").ToArray();
+    private static readonly string[] Owned = ManagerArchive.KnownNames.Append("installed-files.json").ToArray();
     internal Action<int>? AfterWrite;
     private readonly Func<string, bool> running;
     public SelfUpdater() : this(IsRunning) { }
     internal SelfUpdater(Func<string, bool> running) => this.running = running;
     public static bool IsRunning(string target)
     {
-        foreach (var process in Process.GetProcessesByName("QDS Mod Manager")) using (process)
+        foreach (var stem in AppIdentity.Stems) foreach (var process in Process.GetProcessesByName(stem)) using (process)
             try { if (string.Equals(Path.GetDirectoryName(process.MainModule?.FileName), target, StringComparison.OrdinalIgnoreCase)) return true; }
             catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException) { return true; }
         return false;
@@ -40,9 +40,10 @@ public sealed class SelfUpdater
     public SelfUpdatePlan Prepare(string target, ManagerRelease release)
     {
         target = Path.TrimEndingDirectorySeparator(Path.GetFullPath(target)); Guard(target); release.Validate();
-        string version = ManagerArchive.VerifyAssembly(File.ReadAllBytes(In(target, "QDS Mod Manager.dll")), "QDS Mod Manager", null);
+        string stem = AppIdentity.StemAt(target);
+        string version = ManagerArchive.VerifyAssembly(File.ReadAllBytes(In(target, stem + ".dll")), stem, null);
         ManagerArchive.VerifyAssembly(File.ReadAllBytes(In(target, "QdsModManager.Core.dll")), "QdsModManager.Core", null);
-        foreach (string name in ManagerArchive.Names.Take(5)) if (!File.Exists(In(target, name))) throw new IOException("The manager installation is incomplete.");
+        foreach (string name in AppIdentity.Files(stem).Take(5)) if (!File.Exists(In(target, name))) throw new IOException("The Q-SYS Mod Manager installation is incomplete.");
         if (!release.IsNewerThan(version)) throw new InvalidOperationException("This manager is already at this version or newer.");
         var before = Current(target); _ = NewManifest(target, release, null, before);
         string history = In(target, ".manager-updates");
@@ -63,7 +64,7 @@ public sealed class SelfUpdater
             foreach (var file in old.Files)
             {
                 Data.CheckHash(file.Sha256);
-                if (ManagerArchive.Names.Contains(file.Path))
+                if (ManagerArchive.KnownNames.Contains(file.Path))
                 { if (before[file.Path] != file.Sha256) throw new IOException("Manager files changed outside the installer: " + file.Path); }
                 else if (Regex.IsMatch(file.Path, @"^Packages/[a-z0-9.-]+\.qdsmod$")) preserved.Add(file);
                 else throw new InvalidDataException("Unexpected installed manager file record.");
@@ -83,29 +84,30 @@ public sealed class SelfUpdater
         string history = Location(plan); var archive = ManagerArchive.Open(archiveBytes, plan.Release);
         string store = In(plan.Target, ".manager-updates"); Directory.CreateDirectory(store);
         using var exclusive = new FileStream(In(store, "operation.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
-        if (running(plan.Target)) throw new IOException("Close other Mod Manager windows before installing the update.");
+        if (running(plan.Target)) throw new IOException("Close other Q-SYS Mod Manager windows before installing the update.");
         if (!Same(Current(plan.Target), plan.Before)) throw new IOException("Manager files changed since the update was prepared. No files were replaced.");
-        string version = ManagerArchive.VerifyAssembly(File.ReadAllBytes(In(plan.Target, "QDS Mod Manager.dll")), "QDS Mod Manager", null);
+        string stem = AppIdentity.StemAt(plan.Target);
+        string version = ManagerArchive.VerifyAssembly(File.ReadAllBytes(In(plan.Target, stem + ".dll")), stem, null);
         if (version != plan.CurrentVersion || !plan.Release.IsNewerThan(version)) throw new IOException("The manager version changed since the update was prepared.");
         if (Directory.Exists(history)) throw new IOException("This update already has a transaction record.");
-        var afterBytes = archive.Files.ToDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal);
-        afterBytes.Add("installed-files.json", NewManifest(plan.Target, plan.Release, archive, plan.Before));
+        var afterBytes = Owned.ToDictionary(name => name, name => archive.Files.TryGetValue(name, out var bytes) ? bytes : null, StringComparer.Ordinal);
+        afterBytes["installed-files.json"] = NewManifest(plan.Target, plan.Release, archive, plan.Before);
         Directory.CreateDirectory(history);
         foreach (var (name, hash) in plan.Before) if (hash is not null)
         {
             byte[] bytes = File.ReadAllBytes(In(plan.Target, name)); if (Data.Hash(bytes) != hash) throw new IOException("Manager changed while backing up.");
             Atomic(In(history, "before/" + name), bytes);
         }
-        var journal = new AppUpdateJournal(plan, afterBytes.ToDictionary(p => p.Key, p => (string?)Data.Hash(p.Value)), "Pending");
+        var journal = new AppUpdateJournal(plan, afterBytes.ToDictionary(p => p.Key, p => p.Value is null ? null : Data.Hash(p.Value)), "Pending");
         Atomic(In(history, "journal.json"), Data.Bytes(journal));
         try
         {
             int count = 0;
-            foreach (var (name, bytes) in afterBytes.OrderBy(p => p.Key == "QDS Mod Manager.exe" ? 1 : p.Key == "installed-files.json" ? 2 : 0))
+            foreach (var (name, bytes) in afterBytes.OrderBy(p => p.Key.EndsWith(".exe", StringComparison.Ordinal) ? 1 : p.Key == "installed-files.json" ? 2 : 0))
             { Atomic(In(plan.Target, name), bytes); AfterWrite?.Invoke(++count); }
             if (!Same(Current(plan.Target), journal.After)) throw new IOException("Manager update verification failed.");
             Atomic(In(history, "journal.json"), Data.Bytes(journal with { Status = "Complete" }));
-            return new(true, true, "Mod Manager updated to " + plan.Release.Version + ".", history);
+            return new(true, true, "Q-SYS Mod Manager updated to " + plan.Release.Version + ".", history);
         }
         catch (Exception error)
         {
@@ -122,7 +124,7 @@ public sealed class SelfUpdater
             throw new IOException("No recovery record exists for the changed manager files.");
         }
         using var exclusive = new FileStream(In(store, "operation.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
-        if (running(plan.Target)) throw new IOException("Close Mod Manager before restoring its files.");
+        if (running(plan.Target)) throw new IOException("Close Q-SYS Mod Manager before restoring its files.");
         var journal = Data.Read<AppUpdateJournal>(File.ReadAllBytes(In(history, "journal.json")));
         if (journal.Plan.Id != plan.Id || journal.Plan.Target != plan.Target || !Same(journal.Plan.Before, plan.Before) || !journal.After.Keys.Order().SequenceEqual(Owned.Order())) throw new InvalidDataException("Recovery record does not match the update.");
         foreach (var hash in journal.After.Values) if (hash is not null) Data.CheckHash(hash);

@@ -54,11 +54,12 @@ internal static class Program
             };
         }
         else if (args.Length != 0) return 2;
+        else { try { Shortcuts.Refresh(); } catch { /* A locked shortcut must not prevent startup. */ } }
         app.Run(window); return 0;
     }
     private static void ValidateRequest(string request, string result)
     {
-        string folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "QDS Mod Manager", "Requests");
+        string folder = Path.Combine(AppIdentity.UserData, "Requests");
         string id = Path.GetFileNameWithoutExtension(request);
         if (!Guid.TryParseExact(id, "N", out _) || !string.Equals(Path.GetFullPath(request), Path.Combine(folder, id + ".json"), StringComparison.OrdinalIgnoreCase)
             || !string.Equals(Path.GetFullPath(result), Path.Combine(folder, id + ".result.json"), StringComparison.OrdinalIgnoreCase) || File.Exists(result)) throw new IOException("Invalid request location.");

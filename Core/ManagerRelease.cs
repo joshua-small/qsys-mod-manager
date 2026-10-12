@@ -17,15 +17,16 @@ public sealed record ManagerRelease(string Version, string Tag, string Url, stri
         if (!Regex.IsMatch(Tag, @"^v[0-9]+\.[0-9]+\.[0-9]+(?:\.[0-9]+)?$") || Tag != "v" + Version || !System.Version.TryParse(Version, out _) || Size is < 1 or > 32 * 1024 * 1024)
             throw new InvalidDataException("Unsupported manager release.");
         Data.CheckHash(Sha256);
-        if (Url != $"https://github.com/{Repository}/releases/download/{Tag}/QDS-Mod-Manager-{Version}-win-x64.zip") throw new InvalidDataException("Unexpected manager download address.");
+        if (!new[] { "Q-SYS-Mod-Manager", "QDS-Mod-Manager" }.Any(prefix => Url == $"https://github.com/{Repository}/releases/download/{Tag}/{prefix}-{Version}-win-x64.zip")) throw new InvalidDataException("Unexpected manager download address.");
     }
-    internal static ManagerRelease Parse(byte[] bytes)
+    internal static ManagerRelease Parse(byte[] bytes, string? expectedUrl = null)
     {
         using var document = JsonDocument.Parse(bytes); var root = document.RootElement;
         if (root.GetProperty("draft").GetBoolean() || root.GetProperty("prerelease").GetBoolean()) throw new InvalidDataException("Only stable published updates are supported.");
         string tag = root.GetProperty("tag_name").GetString() ?? "";
         if (!tag.StartsWith('v')) throw new InvalidDataException("Unsupported release tag.");
-        string version = tag[1..], name = $"QDS-Mod-Manager-{version}-win-x64.zip";
+        string version = tag[1..];
+        string name = expectedUrl is not null ? new Uri(expectedUrl).Segments.Last() : root.GetProperty("assets").EnumerateArray().Any(a => a.GetProperty("name").GetString() == $"Q-SYS-Mod-Manager-{version}-win-x64.zip") ? $"Q-SYS-Mod-Manager-{version}-win-x64.zip" : $"QDS-Mod-Manager-{version}-win-x64.zip";
         var asset = root.GetProperty("assets").EnumerateArray().Single(a => a.GetProperty("name").GetString() == name);
         string digest = asset.GetProperty("digest").GetString() ?? "";
         if (!digest.StartsWith("sha256:", StringComparison.Ordinal)) throw new InvalidDataException("The release has no SHA-256 digest.");
@@ -41,12 +42,12 @@ public sealed class ManagerReleaseClient : IDisposable
     public ManagerReleaseClient(HttpClient? client = null)
     {
         this.client = client ?? new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(35) };
-        this.client.DefaultRequestHeaders.UserAgent.ParseAdd("QDS-Mod-Manager-Updater/0.3");
+        this.client.DefaultRequestHeaders.UserAgent.ParseAdd("Q-SYS-Mod-Manager-Updater/0.4");
     }
     public async Task<ManagerRelease> Latest(CancellationToken cancellation) => ManagerRelease.Parse(await Read(Api + "latest", 512 * 1024, cancellation));
     public async Task VerifyPublished(ManagerRelease release, CancellationToken cancellation)
     {
-        release.Validate(); var published = ManagerRelease.Parse(await Read(Api + "tags/" + release.Tag, 512 * 1024, cancellation));
+        release.Validate(); var published = ManagerRelease.Parse(await Read(Api + "tags/" + release.Tag, 512 * 1024, cancellation), release.Url);
         if (published != release) throw new InvalidDataException("The published update changed. Check for updates again.");
     }
     public async Task<byte[]> Download(ManagerRelease release, CancellationToken cancellation)
@@ -80,7 +81,8 @@ public sealed class ManagerReleaseClient : IDisposable
 
 public sealed class ManagerArchive
 {
-    public static readonly string[] Names = { "QDS Mod Manager.exe", "QDS Mod Manager.dll", "QDS Mod Manager.deps.json", "QDS Mod Manager.runtimeconfig.json", "QdsModManager.Core.dll", "README.md", "THIRD-PARTY-NOTICES.txt" };
+    public static readonly string[] Names = AppIdentity.Files(AppIdentity.Name);
+    public static readonly string[] KnownNames = AppIdentity.Stems.SelectMany(AppIdentity.Files).Distinct().ToArray();
     public Dictionary<string, byte[]> Files { get; }
     private ManagerArchive(Dictionary<string, byte[]> files) => Files = files;
     public static ManagerArchive Open(byte[] bytes, ManagerRelease release)
@@ -88,7 +90,7 @@ public sealed class ManagerArchive
         release.Validate();
         if (bytes.LongLength != release.Size || Data.Hash(bytes) != release.Sha256) throw new InvalidDataException("The manager download did not match the published release.");
         using var zip = new ZipArchive(new MemoryStream(bytes), ZipArchiveMode.Read);
-        if (zip.Entries.Count != Names.Length || !zip.Entries.Select(e => e.FullName).Order().SequenceEqual(Names.Order())) throw new InvalidDataException("Unexpected manager archive contents.");
+        string stem = AppIdentity.Stems.SingleOrDefault(s => zip.Entries.Select(e => e.FullName).Order().SequenceEqual(AppIdentity.Files(s).Order())) ?? throw new InvalidDataException("Unexpected manager archive contents.");
         var files = new Dictionary<string, byte[]>(StringComparer.Ordinal);
         foreach (var entry in zip.Entries)
         {
@@ -97,13 +99,13 @@ public sealed class ManagerArchive
             while ((count = stream.Read(buffer)) > 0) { if (output.Length + count > 8 * 1024 * 1024) throw new InvalidDataException("Manager archive expansion exceeded its limit."); output.Write(buffer, 0, count); }
             files.Add(entry.FullName, output.ToArray());
         }
-        VerifyAssembly(files["QDS Mod Manager.dll"], "QDS Mod Manager", release.Version);
+        VerifyAssembly(files[stem + ".dll"], stem, release.Version);
         VerifyAssembly(files["QdsModManager.Core.dll"], "QdsModManager.Core", null);
-        using (var pe = new PEReader(new MemoryStream(files["QDS Mod Manager.exe"])))
+        using (var pe = new PEReader(new MemoryStream(files[stem + ".exe"])))
             if (pe.PEHeaders.CoffHeader.Machine != Machine.Amd64) throw new InvalidDataException("The manager update is not a Windows x64 app.");
-        using (var runtime = JsonDocument.Parse(files["QDS Mod Manager.runtimeconfig.json"]))
+        using (var runtime = JsonDocument.Parse(files[stem + ".runtimeconfig.json"]))
             if (runtime.RootElement.GetProperty("runtimeOptions").GetProperty("tfm").GetString() != "net10.0") throw new InvalidDataException("This update needs a different .NET runtime. Use the release download instead.");
-        using var dependencies = JsonDocument.Parse(files["QDS Mod Manager.deps.json"]);
+        using var dependencies = JsonDocument.Parse(files[stem + ".deps.json"]);
         return new(files);
     }
     internal static string VerifyAssembly(byte[] bytes, string expectedName, string? version)
