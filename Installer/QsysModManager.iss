@@ -80,13 +80,17 @@ function RuntimeReady: Boolean;
 var
   Names: TArrayOfString;
   I: Integer;
+  Root: String;
 begin
   Result := False;
   { .NET's installed-version keys are in the 32-bit registry view. }
+  if not RegQueryStringValue(HKLM32, 'SOFTWARE\dotnet\Setup\InstalledVersions\x64', 'InstallLocation', Root) then Exit;
   if RegGetValueNames(HKLM32, RuntimeKey, Names) then
     for I := 0 to GetArrayLength(Names) - 1 do
       if (Copy(Names[I], 1, 5) = '10.0.') and
-         (StrToIntDef(Copy(Names[I], 6, Length(Names[I])), -1) >= {#RuntimePatch}) then
+         (StrToIntDef(Copy(Names[I], 6, Length(Names[I])), -1) >= {#RuntimePatch}) and
+         FileExists(AddBackslash(Root) + 'shared\Microsoft.WindowsDesktop.App\' + Names[I] + '\PresentationFramework.dll') and
+         FileExists(AddBackslash(Root) + 'shared\Microsoft.NETCore.App\' + Names[I] + '\coreclr.dll') then
         Result := True;
 end;
 
