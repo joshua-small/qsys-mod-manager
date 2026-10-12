@@ -101,6 +101,12 @@ internal static class AppUpdate
             }
         }
         catch (Exception error) { result = new(false, SafeOriginal(request.Plan), error.GetBaseException().Message, null); }
+        if (result.Success)
+        {
+            try { InstallerRegistration.Refresh(request.Plan.Target, request.Plan.Release.Version); }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+            { result = result with { Message = result.Message + " Run Setup again to refresh the version shown in Windows Installed apps." }; }
+        }
         WriteNew(resultPath, Data.Bytes(result)); return result.Success ? 0 : 1;
     }
     private static bool SafeOriginal(SelfUpdatePlan plan) { try { return SelfUpdater.OriginalIntact(plan); } catch { return false; } }

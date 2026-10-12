@@ -3,3 +3,4 @@
 .local/
 *.qdsmod
 *.zip
+artifacts/

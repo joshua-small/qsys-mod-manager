@@ -1,3 +1,11 @@
+Windows installer: Inno Setup, https://jrsoftware.org/
+Copyright (C) 1997-2026 Jordan Russell. All rights reserved.
+Portions Copyright (C) 2000-2026 Martijn Laan. All rights reserved.
+
+Setup bundles the unmodified Microsoft .NET Desktop Runtime for Windows x64.
+Its Microsoft license and third-party notices are included in the runtime installation.
+https://dotnet.microsoft.com/download/dotnet/10.0
+
 MIT License
 
 Copyright (c) 2017 Andreas Pardeike

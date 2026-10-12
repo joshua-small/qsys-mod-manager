@@ -1,0 +1,74 @@
+name: Windows installer
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, codex/windows-installer]
+    paths: ['App/**', 'Core/**', 'Installer/**', 'README.md', 'THIRD-PARTY-NOTICES.txt', '.github/workflows/windows-installer.yml']
+permissions:
+  contents: read
+jobs:
+  build-and-verify:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+      - name: Publish app and native checks
+        shell: pwsh
+        run: |
+          dotnet publish App/QdsModManager.App.csproj -c Release --artifacts-path artifacts/dotnet -o artifacts/publish -p:DebugType=None -p:DebugSymbols=false
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          dotnet publish App/QdsModManager.App.csproj -c Release --artifacts-path artifacts/legacy-dotnet -o artifacts/legacy -p:LegacyHost=true -p:DebugType=None -p:DebugSymbols=false
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          dotnet publish Installer/NativeChecks/NativeChecks.csproj -c Release --artifacts-path artifacts/checks-dotnet -o artifacts/checks -p:DebugType=None
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Install pinned compiler
+        shell: pwsh
+        run: |
+          $spec = Get-Content Installer/prerequisites.json -Raw | ConvertFrom-Json
+          Invoke-WebRequest $spec.compilerUrl -OutFile artifacts/inno.exe
+          if ((Get-FileHash artifacts/inno.exe).Hash.ToLowerInvariant() -ne $spec.compilerSha256) { throw 'Compiler hash mismatch' }
+          if ((Get-AuthenticodeSignature artifacts/inno.exe).Status -ne 'Valid') { throw 'Compiler signature invalid' }
+          $p = Start-Process artifacts/inno.exe -ArgumentList '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CURRENTUSER /NOICONS /SP- /DIR="C:\InnoSetup"' -Wait -PassThru
+          if ($p.ExitCode) { throw "Compiler install failed: $($p.ExitCode)" }
+      - name: Build installer and portable releases
+        shell: pwsh
+        run: |
+          ./Installer/Build.ps1 -PublishDirectory artifacts/publish -OutputDirectory artifacts/release -Compiler C:/InnoSetup/ISCC.exe
+          Copy-Item README.md,THIRD-PARTY-NOTICES.txt artifacts/legacy
+          $version = ([xml](Get-Content App/QdsModManager.App.csproj -Raw)).Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
+          $names = @('QDS Mod Manager.exe','QDS Mod Manager.dll','QDS Mod Manager.deps.json','QDS Mod Manager.runtimeconfig.json','QdsModManager.Core.dll','README.md','THIRD-PARTY-NOTICES.txt')
+          Compress-Archive -LiteralPath @($names | ForEach-Object { Join-Path artifacts/legacy $_ }) -DestinationPath "artifacts/release/QDS-Mod-Manager-$version-win-x64.zip"
+      - name: Verify missing prerequisite and installer lifecycle
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Disposable runner only: remove the exact runtime bundle if it is
+          # registered, so Setup must exercise prerequisite installation.
+          $spec = Get-Content Installer/prerequisites.json -Raw | ConvertFrom-Json
+          $runtime = Get-ChildItem artifacts/release/prerequisites/*.exe | Select-Object -First 1
+          $p = Start-Process $runtime.FullName -ArgumentList '/uninstall /quiet /norestart' -Wait -PassThru
+          if ($p.ExitCode -notin @(0,3010)) { throw "Runtime removal failed: $($p.ExitCode)" }
+          $key = 'HKLM:\SOFTWARE\WOW6432Node\dotnet\Setup\InstalledVersions\x64\sharedfx\Microsoft.WindowsDesktop.App'
+          $ready = @(if (Test-Path $key) { (Get-Item $key).Property | Where-Object { $_ -match '^10\.0\.\d+$' -and ([version]$_).Build -ge ([version]$spec.runtimeVersion).Build } })
+          if ($ready.Count) { throw 'Runner still has a registered compatible runtime; missing-prerequisite test cannot proceed.' }
+          gh release download v0.3.1 --repo joshua-small/qsys-mod-manager --pattern QDS-Mod-Manager-0.3.1-win-x64.zip --dir artifacts/old
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $setup = Get-ChildItem artifacts/release/*Setup*.exe | Select-Object -First 1
+          ./Installer/Test.ps1 -Setup $setup.FullName -LegacyZip artifacts/old/QDS-Mod-Manager-0.3.1-win-x64.zip -NativeChecks artifacts/checks/NativeChecks.exe -OutputDirectory artifacts/validation
+          if (-not (Select-String -Path artifacts/validation/fresh-install.log -SimpleMatch 'Installing bundled Microsoft .NET Desktop Runtime')) { throw 'Bundled runtime installation was not exercised.' }
+      - name: Upload installer, portable downloads, and receipts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-installer
+          path: |
+            artifacts/release/*.exe
+            artifacts/release/*.zip
+            artifacts/release/*.json
+            artifacts/release/*.txt
+            artifacts/validation/**
+          if-no-files-found: error
