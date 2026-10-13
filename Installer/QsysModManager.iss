@@ -34,6 +34,7 @@ RestartIfNeededByRun=no
 #ifdef SigningCommand
 SignTool=qmm
 SignedUninstaller=yes
+SignedUninstallerDir={#OutputDir}\signed-uninstaller
 #endif
 
 [Tasks]

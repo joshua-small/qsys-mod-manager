@@ -22,3 +22,5 @@ To uninstall, use **Settings → Apps → Installed apps → Q-SYS Mod Manager**
 The **Windows ZIP** remains available for portable use; extract it before opening the app. The ZIP requires the .NET 10 Desktop Runtime (Windows x64) separately.
 
 Releases are currently unsigned, so Windows may show an unknown-publisher or SmartScreen warning. Download only from the release page above.
+
+Build instructions, including signed installers, are in the [installer build guide](https://github.com/joshua-small/qsys-mod-manager/blob/main/Installer/README.md).

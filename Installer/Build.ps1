@@ -1,13 +1,15 @@
 # The app is published separately so Windows and Linux .NET outputs never mix.
 # Example: ./Installer/Build.ps1 -PublishDirectory ./artifacts/publish -OutputDirectory ./artifacts/release -Compiler 'C:\Program Files (x86)\Inno Setup 7\ISCC.exe'
+#Requires -Version 7.0
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][string] $PublishDirectory,
     [Parameter(Mandatory)][string] $OutputDirectory,
     [Parameter(Mandatory)][string] $Compiler,
     [string] $RuntimeCache,
-    # Optional Inno SignTool command with $f placeholder. Sign app binaries first.
-    [string] $SigningCommand
+    [switch] $Sign,
+    [ValidateSet('InteractiveBrowser','AzureCli')][string] $SigningAuthentication = 'InteractiveBrowser',
+    [string] $SignToolPath
 )
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path $PSScriptRoot -Parent
@@ -30,6 +32,19 @@ foreach ($name in $names) {
     $source = if ($name -in @('README.md','THIRD-PARTY-NOTICES.txt')) { Join-Path $repo $name } else { Join-Path $publish $name }
     Copy-Item -LiteralPath $source -Destination (Join-Path $payload $name)
 }
+$binaries = @($names | Where-Object { $_ -match '\.(exe|dll)$' } | ForEach-Object { Join-Path $payload $_ })
+if ($Sign) {
+    . (Join-Path $PSScriptRoot 'Signing.ps1')
+    $context = Initialize-QmmSigning -Directory (Join-Path $output 'signing') -Authentication $SigningAuthentication -SignToolPath $SignToolPath
+    & (Join-Path $PSScriptRoot 'Sign.ps1') -FilePath $binaries -ContextPath $context
+    # $f is quoted by Inno; $q adds quotes, and $$ preserves literal dollars in paths.
+    $pwsh = (Get-Process -Id $PID).Path
+    $signingCommand = '$q' + $pwsh.Replace('$','$$') + '$q -NoLogo -NoProfile -NonInteractive -File $q' +
+        (Join-Path $PSScriptRoot 'Sign.ps1').Replace('$','$$') + '$q -ContextPath $q' + $context.Replace('$','$$') + '$q -FilePath $f'
+    $uninstallerDirectory = Join-Path $output 'signed-uninstaller'
+    New-Item -ItemType Directory -Path $uninstallerDirectory | Out-Null
+}
+# Signing changes the PE bytes: hashes must describe the signed files.
 $files = @($names | ForEach-Object { [ordered]@{ path=$_; sha256=(Get-FileHash -LiteralPath (Join-Path $payload $_)).Hash.ToLowerInvariant() } })
 [ordered]@{schema=1;version=$version;files=$files} | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $payload 'installed-files.json') -Encoding utf8NoBOM
 
@@ -40,11 +55,6 @@ if (-not (Test-Path -LiteralPath $runtime)) { Invoke-WebRequest -Uri $spec.runti
 if ((Get-FileHash -LiteralPath $runtime -Algorithm SHA512).Hash.ToLowerInvariant() -ne $spec.runtimeSha512) { throw 'Microsoft runtime SHA-512 mismatch.' }
 $signature = Get-AuthenticodeSignature -LiteralPath $runtime
 if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'O=Microsoft Corporation') { throw 'Microsoft runtime signature verification failed.' }
-if ($SigningCommand) {
-    foreach ($name in $names | Where-Object { $_ -match '\.(exe|dll)$' }) {
-        if ((Get-AuthenticodeSignature -LiteralPath (Join-Path $payload $name)).Status -ne 'Valid') { throw "Sign $name before building a signed installer." }
-    }
-}
 $arguments = @(
     "--define=PayloadDir=$payload", "--define=OutputDir=$output", "--define=AppVersion=$version",
     "--define=RuntimeFile=$runtime", "--define=RuntimeVersion=$($spec.runtimeVersion)",
@@ -52,11 +62,26 @@ $arguments = @(
     "--define=VersionHigh=$(($appVersion.Major -shl 16) -bor $appVersion.Minor)",
     "--define=VersionLow=$(($appVersion.Build -shl 16) -bor $appVersion.Revision)"
 )
-if ($SigningCommand) { $arguments += '--define=SigningCommand=1'; $arguments += "--signtool=qmm=$SigningCommand" }
+if ($Sign) { $arguments += '--define=SigningCommand=1'; $arguments += "--signtool=qmm=$signingCommand" }
 $arguments += Join-Path $PSScriptRoot 'QsysModManager.iss'
 & $compilerPath @arguments
 if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed: $LASTEXITCODE" }
 $setup = Join-Path $output "Q-SYS-Mod-Manager-Setup-$version-win-x64.exe"
+if ($Sign) {
+    $uninstallers = @(Get-ChildItem -LiteralPath $uninstallerDirectory -File | Where-Object { $_.Extension -in @('.exe','.e32','.e64') })
+    if ($uninstallers.Count -eq 0) { throw 'Inno Setup did not retain a signed uninstaller.' }
+    $signedFiles = @($binaries) + @($uninstallers.FullName) + @($setup)
+    Assert-QmmSignature -FilePath $signedFiles
+    $receipt = foreach ($file in $signedFiles) {
+        $signature = Get-AuthenticodeSignature -LiteralPath $file
+        [ordered]@{
+            file=[IO.Path]::GetRelativePath($output,$file);sha256=(Get-FileHash -LiteralPath $file).Hash.ToLowerInvariant()
+            subject=$signature.SignerCertificate.Subject;certificateThumbprint=$signature.SignerCertificate.Thumbprint
+            timestampSubject=$signature.TimeStamperCertificate.Subject;status=$signature.Status.ToString()
+        }
+    }
+    ConvertTo-Json -InputObject @($receipt) -Depth 4 | Set-Content -LiteralPath (Join-Path $output 'signatures.json') -Encoding utf8NoBOM
+}
 $portable = Join-Path $output "Q-SYS-Mod-Manager-$version-win-x64.zip"
 Compress-Archive -LiteralPath @($names | ForEach-Object { Join-Path $payload $_ }) -DestinationPath $portable
 $artifacts = @($setup, $portable) | ForEach-Object { [ordered]@{file=[IO.Path]::GetFileName($_);bytes=(Get-Item -LiteralPath $_).Length;sha256=(Get-FileHash -LiteralPath $_).Hash.ToLowerInvariant()} }

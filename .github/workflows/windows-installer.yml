@@ -1,6 +1,8 @@
 name: Windows installer
 on:
   workflow_dispatch:
+  pull_request:
+    paths: ['App/**', 'Core/**', 'Installer/**', 'README.md', 'THIRD-PARTY-NOTICES.txt', '.github/workflows/windows-installer.yml']
   push:
     branches: [main, codex/windows-installer]
     paths: ['App/**', 'Core/**', 'Installer/**', 'README.md', 'THIRD-PARTY-NOTICES.txt', '.github/workflows/windows-installer.yml']
@@ -33,7 +35,7 @@ jobs:
           if ((Get-AuthenticodeSignature artifacts/inno.exe).Status -ne 'Valid') { throw 'Compiler signature invalid' }
           $p = Start-Process artifacts/inno.exe -ArgumentList '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CURRENTUSER /NOICONS /SP- /DIR="C:\InnoSetup"' -Wait -PassThru
           if ($p.ExitCode) { throw "Compiler install failed: $($p.ExitCode)" }
-      - name: Build installer and portable releases
+      - name: Build unsigned installer and portable test artifacts
         shell: pwsh
         run: |
           ./Installer/Build.ps1 -PublishDirectory artifacts/publish -OutputDirectory artifacts/release -Compiler C:/InnoSetup/ISCC.exe

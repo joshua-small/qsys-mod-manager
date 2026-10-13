@@ -1,0 +1,10 @@
+{
+  "endpoint": "https://wus2.codesigning.azure.net/",
+  "account": "avitex-signing",
+  "profile": "mod-manager",
+  "tenantId": "c3b65de8-21c8-428b-9758-33fcacf85b1a",
+  "subject": "CN=Joshua Small, O=Joshua Small, L=Medford, S=or, C=US",
+  "clientVersion": "1.0.146",
+  "clientUrl": "https://www.nuget.org/api/v2/package/Microsoft.ArtifactSigning.Client/1.0.146",
+  "clientSha256": "7761e5d8f31e54b764da21d33cd8b0a2940e1b05526c7dfcb5e94b0431426f70"
+}
