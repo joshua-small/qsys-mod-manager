@@ -45,6 +45,13 @@ if (args.Length == 2 && args[0] == "--online")
     foreach (var item in snapshot.Document.Mods) foreach (var release in item.Releases)
     {
         var package = await catalog.Download(item, release, Path.Combine(directory, "packages"), default);
+        // Exercise every live mod above, but keep deterministic legacy fixtures for lifecycle tests.
+        // New community approvals must not make a later test process depend on a mutable live catalog.
+        if (Catalog.Bundled.Mods.Any(m => m.Id == item.Id && m.Releases.Any(r => r.Sha256 == release.Sha256)))
+        {
+            Directory.CreateDirectory(Path.Combine(directory, "test-packages"));
+            File.Copy(package.Path, Path.Combine(directory, "test-packages", release.Sha256 + ".qdsmod"));
+        }
         verified.Add(new { id = item.Id, version = package.Manifest.Version, sha256 = package.ArchiveHash });
     }
     File.WriteAllBytes(Path.Combine(directory, "result.json"), Data.Bytes(new { status = "live downloads verified", verified }));

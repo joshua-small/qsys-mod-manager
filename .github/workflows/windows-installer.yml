@@ -49,9 +49,9 @@ jobs:
           $release = $schematic.releases | Sort-Object { [version]$_.version } -Descending | Select-Object -First 1
           [IO.Compression.ZipFile]::ExtractToDirectory((Join-Path $PWD ("artifacts/test-downloads/packages/" + $release.sha256 + '.qdsmod')), (Join-Path $PWD 'artifacts/test-payload'))
           Copy-Item artifacts/fixture-dotnet/bin/PreviousModule/debug/Designer.Modules.SelectionProbe.dll artifacts/test-payload/payload/Designer.Modules.SelectionProbe.dll -Force
-          dotnet run --project Pack/QdsModManager.Pack.csproj --artifacts-path artifacts/pack-dotnet -- schematic-tools artifacts/test-payload/payload artifacts/test-downloads/packages/synthetic-previous.qdsmod
+          dotnet run --project Pack/QdsModManager.Pack.csproj --artifacts-path artifacts/pack-dotnet -- schematic-tools artifacts/test-payload/payload artifacts/test-downloads/test-packages/synthetic-previous.qdsmod
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          dotnet $tests artifacts/test-downloads/packages artifacts/profile-tests unit
+          dotnet $tests artifacts/test-downloads/test-packages artifacts/profile-tests unit
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: Install pinned compiler
         shell: pwsh

@@ -21,5 +21,5 @@ jobs:
       - name: Verify published packages and publishing contracts
         run: |
           dotnet run --project Tests/QdsModManager.Tests.csproj -- --online artifacts/downloads
-          dotnet run --project CatalogTests/QdsModManager.CatalogTests.csproj -- artifacts/downloads/packages artifacts/publishing-tests
+          dotnet run --project CatalogTests/QdsModManager.CatalogTests.csproj -- artifacts/downloads/test-packages artifacts/publishing-tests
           dotnet run --project CatalogTool/QdsModManager.CatalogTool.csproj -- verify-feed Tests/Fixtures/catalog-signed.json
