@@ -32,8 +32,10 @@ internal static class Program
             using (var receipt = new FileStream(args[3], FileMode.CreateNew, FileAccess.Write, FileShare.None)) { receipt.Write(Data.Bytes(result)); receipt.Flush(true); }
             return result.Success ? 0 : 1;
         }
+        using var uiMutex = new Mutex(false, @"Local\QsysModManager.UserInterface", out bool firstWindow);
+        if (args.Length == 0 && !firstWindow) { MessageBox.Show("Q-SYS Mod Manager is already open.", AppIdentity.Name); return 0; }
         var app = new Application { ShutdownMode = ShutdownMode.OnMainWindowClose };
-        var window = new MainWindow();
+        var window = new MainWindow(args.Length == 5 && args[0] == "--smoke" ? Path.Combine(Path.GetFullPath(args[2]), "user-data") : null);
         if (args.Length == 5 && args[0] == "--smoke")
         {
             window.SmokeSetup(args[3], args[4] == "-" ? null : Data.Read<CatalogDocument>(File.ReadAllBytes(args[4])));
@@ -55,9 +57,18 @@ internal static class Program
                     }
                     File.WriteAllBytes(Path.Combine(output, "layout.json"), Data.Bytes(window.SmokeLayoutChecks(false)));
                     Capture("manager.png");
+                    window.SmokeDetails(true); Capture("manager-details.png"); window.SmokeDetails(false);
                     window.Width = window.MinWidth; window.Height = window.MinHeight; await Task.Delay(150); window.UpdateLayout();
                     File.WriteAllBytes(Path.Combine(output, "layout-minimum.json"), Data.Bytes(window.SmokeLayoutChecks(true)));
                     Capture("manager-minimum.png");
+                    window.SmokeDetails(true); Capture("manager-minimum-details.png"); window.SmokeDetails(false);
+                    window.Width = 1366; window.Height = 740;
+                    foreach (double scale in new[] { 1.0, 1.25, 1.5, 2.0 })
+                    {
+                        window.SmokeScale(scale); await Task.Delay(100);
+                        File.WriteAllBytes(Path.Combine(output, "layout-scale-" + scale.ToString(System.Globalization.CultureInfo.InvariantCulture) + ".json"), Data.Bytes(window.SmokeLayoutChecks(false)));
+                        Capture("manager-scale-" + scale.ToString(System.Globalization.CultureInfo.InvariantCulture) + ".png");
+                    }
                     File.WriteAllBytes(Path.Combine(output, "ui.json"), Data.Bytes(window.SmokeResult()));
                 }
                 catch (Exception error) { File.WriteAllText(Path.Combine(output, "error.txt"), error.ToString()); }

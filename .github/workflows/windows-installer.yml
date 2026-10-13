@@ -2,10 +2,10 @@ name: Windows installer
 on:
   workflow_dispatch:
   pull_request:
-    paths: ['App/**', 'Core/**', 'Installer/**', 'README.md', 'THIRD-PARTY-NOTICES.txt', '.github/workflows/windows-installer.yml']
+    paths: ['App/**', 'Core/**', 'Tests/**', 'Pack/**', 'catalog/**', 'Installer/**', 'README.md', 'THIRD-PARTY-NOTICES.txt', '.github/workflows/windows-installer.yml']
   push:
     branches: [main]
-    paths: ['App/**', 'Core/**', 'Installer/**', 'README.md', 'THIRD-PARTY-NOTICES.txt', '.github/workflows/windows-installer.yml']
+    paths: ['App/**', 'Core/**', 'Tests/**', 'Pack/**', 'catalog/**', 'Installer/**', 'README.md', 'THIRD-PARTY-NOTICES.txt', '.github/workflows/windows-installer.yml']
 permissions:
   contents: read
 jobs:
@@ -33,6 +33,25 @@ jobs:
           dotnet publish App/QdsModManager.App.csproj -c Release --artifacts-path artifacts/legacy-dotnet -o artifacts/legacy -p:LegacyHost=true -p:DebugType=None -p:DebugSymbols=false
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           dotnet publish Installer/NativeChecks/NativeChecks.csproj -c Release --artifacts-path artifacts/checks-dotnet -o artifacts/checks -p:DebugType=None
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Verify grouped profiles, packages and recovery
+        shell: pwsh
+        run: |
+          dotnet build Tests/QdsModManager.Tests.csproj --artifacts-path artifacts/test-dotnet
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $tests = 'artifacts/test-dotnet/bin/QdsModManager.Tests/debug/QdsModManager.Tests.dll'
+          dotnet $tests --online artifacts/test-downloads
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          dotnet build Tests/Fixtures/PreviousModule/PreviousModule.csproj --artifacts-path artifacts/fixture-dotnet
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $index = Get-Content catalog/index.json -Raw | ConvertFrom-Json
+          $schematic = $index.mods | Where-Object id -eq 'schematic-tools'
+          $release = $schematic.releases | Sort-Object { [version]$_.version } -Descending | Select-Object -First 1
+          [IO.Compression.ZipFile]::ExtractToDirectory((Join-Path $PWD ("artifacts/test-downloads/packages/" + $release.sha256 + '.qdsmod')), (Join-Path $PWD 'artifacts/test-payload'))
+          Copy-Item artifacts/fixture-dotnet/bin/PreviousModule/debug/Designer.Modules.SelectionProbe.dll artifacts/test-payload/payload/Designer.Modules.SelectionProbe.dll -Force
+          dotnet run --project Pack/QdsModManager.Pack.csproj --artifacts-path artifacts/pack-dotnet -- schematic-tools artifacts/test-payload/payload artifacts/test-downloads/packages/synthetic-previous.qdsmod
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          dotnet $tests artifacts/test-downloads/packages artifacts/profile-tests unit
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: Install pinned compiler
         shell: pwsh

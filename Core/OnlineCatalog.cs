@@ -83,6 +83,26 @@ public sealed class OnlineCatalog : IDisposable
         }
         finally { if (File.Exists(staging)) File.Delete(staging); }
     }
+    public async Task<PresentationDocument?> FetchPresentation(CancellationToken cancellation)
+    {
+        string path = Path.Combine(Path.GetDirectoryName(cache)!, "presentation-cache.json");
+        try
+        {
+            var bytes = await Read(new Uri(IndexUrl.Replace("index.json", "presentation.json")), IndexLimit, cancellation);
+            var document = PresentationDocument.Validate(Data.Read<PresentationDocument>(bytes)); Save(path, bytes); return document;
+        }
+        catch (Exception error) when (error is not OperationCanceledException || !cancellation.IsCancellationRequested)
+        {
+            try { return File.Exists(path) && new FileInfo(path).Length <= IndexLimit ? PresentationDocument.Validate(Data.Read<PresentationDocument>(File.ReadAllBytes(path))) : null; } catch { return null; }
+        }
+    }
+    public async Task<byte[]?> Thumbnail(ModPresentation mod, CancellationToken cancellation)
+    {
+        PresentationDocument.Validate(new(1, [mod])); if (mod.Thumbnail is null) return null;
+        string path = Path.Combine(Path.GetDirectoryName(cache)!, "thumbnails", Data.Hash(System.Text.Encoding.UTF8.GetBytes(mod.Thumbnail)));
+        try { var bytes = await Read(new Uri(mod.Thumbnail), 1024 * 1024, cancellation); Save(path, bytes); return bytes; }
+        catch (Exception error) when (error is not OperationCanceledException || !cancellation.IsCancellationRequested) { return File.Exists(path) && new FileInfo(path).Length <= 1024 * 1024 ? File.ReadAllBytes(path) : null; }
+    }
     private static ModPackage Verify(string path, CatalogItem item, CatalogRelease release)
     {
         var package = ModPackage.Open(path);

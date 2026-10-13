@@ -54,8 +54,8 @@ if (args.Length != 3) throw new ArgumentException("Usage: tests <package-directo
 string output = Path.GetFullPath(args[1]); if (Directory.Exists(output)) throw new IOException("Use a fresh output directory."); Directory.CreateDirectory(output);
 var packages = Directory.GetFiles(args[0], "*.qdsmod").Select(ModPackage.Open).ToArray();
 var schematic = packages.Where(p => p.Manifest.Id == "schematic-tools").OrderBy(p => Version.Parse(p.Manifest.Version)).ToArray();
-if (schematic.Length < 2) throw new Exception("Tests require two real Schematic Tools versions.");
-var old = schematic.First(); var latest = schematic.Last(); var geometry = packages.Single(p => p.Manifest.Id == "automatic-geometry");
+if (schematic.Length < 2) throw new Exception("Tests require two distinct valid Schematic Tools package versions (the CI older version is a synthetic fixture).");
+var old = schematic.First(); var latest = schematic.Last(); var geometry = packages.Where(p => p.Manifest.Id == "automatic-geometry").OrderBy(p => Version.Parse(p.Manifest.Version)).Last();
 var checks = new List<string>();
 void Check(bool value, string label) { if (!value) throw new Exception(label); checks.Add(label); }
 void Reject(Action action, string label) { try { action(); } catch (Exception) { checks.Add(label); return; } throw new Exception("Accepted: " + label); }

@@ -32,6 +32,12 @@ internal static class ProfileChecks
         Reject(() => manager.PrepareProfile(next with { HostSha256 = new string('0', 64) }, all), "Incompatible profile blocks before writes");
         var library = new ProfileLibrary(Path.Combine(output, "profile-library")); library.Reconcile(manager.Inspect(all)); library.Reconcile(other.Inspect(all));
         Reject(() => library.Delete(initial.Id), "Assigned profile cannot be deleted");
+        var revised = initial with { Mods = initial.Mods.Select(p => p.Id == latest.Manifest.Id ? p with { Version = latest.Manifest.Version, Sha256 = latest.ArchiveHash } : p).ToArray() };
+        manager.Apply(manager.PrepareProfile(revised, all)); library.Reconcile(manager.Inspect(all)); library.Reconcile(other.Inspect(all));
+        Check(library.Store.Profiles.Single(p => p.Id == initial.Id).Mods.Single(p => p.Id == latest.Manifest.Id).Version == latest.Manifest.Version, "Unchanged second installation does not overwrite newer saved pins");
+        manager.Apply(manager.Prepare("Undo")); library.Reconcile(manager.Inspect(all));
+        Check(library.Store.Profiles.Single(p => p.Id == initial.Id).Mods.Single(p => p.Id == latest.Manifest.Id).Version == old.Manifest.Version, "Undo reconciles prior profile pins into library");
+        Check(manager.CachedPackages().Any(p => p.ArchiveHash == latest.ArchiveHash) && manager.CachedPackages().Any(p => p.ArchiveHash == old.ArchiveHash), "Installation cache retains historical exact pins");
         string exported = Path.Combine(output, "roundtrip.qdsprofile"); File.WriteAllBytes(exported, Data.Bytes(next)); var imported = ModProfile.Import(exported);
         Check(imported.Id != next.Id && imported.Mods.SequenceEqual(next.Mods), "Profile import preserves exact metadata and creates a fresh identity"); library.Save(imported); library.Delete(imported.Id);
         for (int fail = 1; fail <= 5; fail++)
