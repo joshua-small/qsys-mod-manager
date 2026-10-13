@@ -5,9 +5,11 @@ param(
     [Parameter(Mandatory)][string] $Setup,
     [Parameter(Mandatory)][string] $LegacyZip,
     [Parameter(Mandatory)][string] $NativeChecks,
-    [Parameter(Mandatory)][string] $OutputDirectory
+    [Parameter(Mandatory)][string] $OutputDirectory,
+    [switch] $RequireSigned
 )
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'Signing.ps1')
 $output = [IO.Path]::GetFullPath($OutputDirectory)
 New-Item -ItemType Directory -Path $output -Force | Out-Null
 $key = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{B8AD941B-5D52-4BDA-B744-80586E33E3E1}_is1'
@@ -26,6 +28,12 @@ function RunSetup([string]$label, [string[]]$extra = @(), [bool]$success = $true
 function VerifyPayload {
     $manifest = Get-Content -LiteralPath (Join-Path $target 'installed-files.json') -Raw | ConvertFrom-Json
     foreach ($f in $manifest.files) { Check ((Get-FileHash -LiteralPath (Join-Path $target $f.path)).Hash.ToLowerInvariant() -eq $f.sha256) ("Installed bytes: " + $f.path) }
+    if ($RequireSigned) {
+        foreach ($name in @('Q-SYS Mod Manager.exe','Q-SYS Mod Manager.dll','QdsModManager.Core.dll','unins000.exe')) {
+            Assert-QmmSignature -FilePath (Join-Path $target $name)
+            Check $true ("Installed publisher and timestamp: " + $name)
+        }
+    }
     Check ((Get-ItemProperty -LiteralPath $key).DisplayVersion -eq $manifest.version) 'Windows Installed apps shows the installed version'
     return $manifest
 }
@@ -42,6 +50,7 @@ function Uninstall([string]$label) {
     Check (-not (Test-Path -LiteralPath (Join-Path $target 'Q-SYS Mod Manager.exe'))) 'Uninstall removes the manager executable'
 }
 try {
+    if ($RequireSigned) { Assert-QmmSignature -FilePath $Setup; Check $true 'Installer publisher and timestamp verified' }
     Check (-not (Test-Path -LiteralPath $key)) 'No pre-existing registered installation'
     Check (-not (Test-Path -LiteralPath $shortcut)) 'No pre-existing common Start shortcut'
     Check (-not (Test-Path -LiteralPath $desktop)) 'No pre-existing common desktop shortcut'

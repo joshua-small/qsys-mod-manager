@@ -1,8 +1,10 @@
 name: Windows installer
 on:
   workflow_dispatch:
+  pull_request:
+    paths: ['App/**', 'Core/**', 'Installer/**', 'README.md', 'THIRD-PARTY-NOTICES.txt', '.github/workflows/windows-installer.yml']
   push:
-    branches: [main, codex/windows-installer]
+    branches: [main]
     paths: ['App/**', 'Core/**', 'Installer/**', 'README.md', 'THIRD-PARTY-NOTICES.txt', '.github/workflows/windows-installer.yml']
 permissions:
   contents: read
@@ -10,11 +12,19 @@ jobs:
   build-and-verify:
     runs-on: windows-latest
     timeout-minutes: 25
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      # PR subjects are not trusted by Azure; PR jobs never log in or sign.
+      QMM_SIGN_BUILD: ${{ github.event_name != 'pull_request' }}
+      AZURE_CORE_OUTPUT: none
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-dotnet@v6
         with:
           global-json-file: global.json
+          dotnet-version: '8.0.x'
       - name: Publish app and native checks
         shell: pwsh
         run: |
@@ -31,16 +41,47 @@ jobs:
           Invoke-WebRequest $spec.compilerUrl -OutFile artifacts/inno.exe
           if ((Get-FileHash artifacts/inno.exe).Hash.ToLowerInvariant() -ne $spec.compilerSha256) { throw 'Compiler hash mismatch' }
           if ((Get-AuthenticodeSignature artifacts/inno.exe).Status -ne 'Valid') { throw 'Compiler signature invalid' }
-          $p = Start-Process artifacts/inno.exe -ArgumentList '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CURRENTUSER /NOICONS /SP- /DIR="C:\InnoSetup"' -Wait -PassThru
+          $p = Start-Process artifacts/inno.exe -ArgumentList '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CURRENTUSER /NOICONS /SP- /DIR="C:\InnoSetup"' -WindowStyle Hidden -Wait -PassThru
           if ($p.ExitCode) { throw "Compiler install failed: $($p.ExitCode)" }
-      - name: Build installer and portable releases
+      - name: Authenticate to Artifact Signing with GitHub OIDC
+        if: github.event_name != 'pull_request'
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3
+        with:
+          client-id: ${{ vars.SIGNING_AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.SIGNING_AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.SIGNING_AZURE_SUBSCRIPTION_ID }}
+      - name: Build installer and portable packages
         shell: pwsh
         run: |
-          ./Installer/Build.ps1 -PublishDirectory artifacts/publish -OutputDirectory artifacts/release -Compiler C:/InnoSetup/ISCC.exe
+          $sign = $env:QMM_SIGN_BUILD -eq 'true'
+          ./Installer/Build.ps1 -PublishDirectory artifacts/publish -OutputDirectory artifacts/release -Compiler C:/InnoSetup/ISCC.exe -Sign:$sign -SigningAuthentication AzureCli
           Copy-Item README.md,THIRD-PARTY-NOTICES.txt artifacts/legacy
           $version = ([xml](Get-Content App/QdsModManager.App.csproj -Raw)).Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
           $names = @('QDS Mod Manager.exe','QDS Mod Manager.dll','QDS Mod Manager.deps.json','QDS Mod Manager.runtimeconfig.json','QdsModManager.Core.dll','README.md','THIRD-PARTY-NOTICES.txt')
+          if ($sign) {
+            $legacyBinaries = @($names | Where-Object { $_ -match '\.(exe|dll)$' } | ForEach-Object { Join-Path artifacts/legacy $_ })
+            ./Installer/Sign.ps1 -FilePath $legacyBinaries -ContextPath artifacts/release/signing/context.json
+          }
           Compress-Archive -LiteralPath @($names | ForEach-Object { Join-Path artifacts/legacy $_ }) -DestinationPath "artifacts/release/QDS-Mod-Manager-$version-win-x64.zip"
+          if ($sign) {
+            . ./Installer/Signing.ps1
+            $receipts = @(Get-Content artifacts/release/signatures.json -Raw | ConvertFrom-Json)
+            foreach ($prefix in @('Q-SYS-Mod-Manager','QDS-Mod-Manager')) {
+              $archive = "$prefix-$version-win-x64.zip"
+              $extracted = "artifacts/verify-$prefix"
+              Expand-Archive -LiteralPath "artifacts/release/$archive" -DestinationPath $extracted
+              foreach ($binary in Get-ChildItem -Path "$extracted/*.exe","$extracted/*.dll") {
+                Assert-QmmSignature -FilePath $binary.FullName
+                $signature = Get-AuthenticodeSignature -LiteralPath $binary.FullName
+                $receipts += [ordered]@{file="$archive!/$($binary.Name)";sha256=(Get-FileHash -LiteralPath $binary.FullName).Hash.ToLowerInvariant();subject=$signature.SignerCertificate.Subject;certificateThumbprint=$signature.SignerCertificate.Thumbprint;timestampSubject=$signature.TimeStamperCertificate.Subject;status=$signature.Status.ToString()}
+              }
+            }
+            ConvertTo-Json -InputObject $receipts -Depth 4 | Set-Content artifacts/release/signatures.json -Encoding utf8NoBOM
+          }
+          # Include the compatibility ZIP, and hash only after all signing/packaging.
+          $artifacts = @(Get-ChildItem -Path artifacts/release/*.exe,artifacts/release/*.zip | ForEach-Object { [ordered]@{file=$_.Name;bytes=$_.Length;sha256=(Get-FileHash -LiteralPath $_.FullName).Hash.ToLowerInvariant()} })
+          ConvertTo-Json -InputObject $artifacts | Set-Content artifacts/release/artifacts.json -Encoding utf8NoBOM
+          $artifacts | ForEach-Object { "$($_.sha256)  $($_.file)" } | Set-Content artifacts/release/SHA256SUMS.txt -Encoding ascii
       - name: Verify missing prerequisite and installer lifecycle
         shell: pwsh
         env:
@@ -53,7 +94,7 @@ jobs:
           foreach ($product in $products) {
             if ($product.PSChildName -notmatch '^\{[0-9A-Fa-f-]{36}\}$') { throw 'Unexpected runtime product identifier' }
             Write-Host "Removing runner prerequisite: $($product.DisplayName)"
-            $p = Start-Process msiexec.exe -ArgumentList @('/x',$product.PSChildName,'/qn','/norestart','IGNOREDEPENDENCIES=ALL','ALLOWMSIUNINSTALL=1','/l*v',('"'+$env:RUNNER_TEMP+'\runtime-removal.log"')) -Wait -PassThru
+            $p = Start-Process msiexec.exe -ArgumentList @('/x',$product.PSChildName,'/qn','/norestart','IGNOREDEPENDENCIES=ALL','ALLOWMSIUNINSTALL=1','/l*v',('"'+$env:RUNNER_TEMP+'\runtime-removal.log"')) -WindowStyle Hidden -Wait -PassThru
             if ($p.ExitCode -notin @(0,3010)) { throw "Runtime MSI removal failed: $($p.ExitCode)" }
           }
           $key = 'HKLM:\SOFTWARE\WOW6432Node\dotnet\Setup\InstalledVersions\x64\sharedfx\Microsoft.WindowsDesktop.App'
@@ -65,17 +106,18 @@ jobs:
           gh release download v0.3.1 --repo joshua-small/qsys-mod-manager --pattern QDS-Mod-Manager-0.3.1-win-x64.zip --dir artifacts/old
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           $setup = Get-ChildItem artifacts/release/*Setup*.exe | Select-Object -First 1
-          ./Installer/Test.ps1 -Setup $setup.FullName -LegacyZip artifacts/old/QDS-Mod-Manager-0.3.1-win-x64.zip -NativeChecks artifacts/checks/NativeChecks.exe -OutputDirectory artifacts/validation
+          ./Installer/Test.ps1 -Setup $setup.FullName -LegacyZip artifacts/old/QDS-Mod-Manager-0.3.1-win-x64.zip -NativeChecks artifacts/checks/NativeChecks.exe -OutputDirectory artifacts/validation -RequireSigned:($env:QMM_SIGN_BUILD -eq 'true')
           if (-not (Select-String -Path artifacts/validation/fresh-install.log -SimpleMatch 'Installing bundled Microsoft .NET Desktop Runtime')) { throw 'Bundled runtime installation was not exercised.' }
       - name: Upload installer, portable downloads, and receipts
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: windows-installer
+          name: windows-installer-${{ github.event_name != 'pull_request' && 'signed' || 'unsigned' }}
           path: |
             artifacts/release/*.exe
             artifacts/release/*.zip
             artifacts/release/*.json
             artifacts/release/*.txt
             artifacts/validation/**
+            artifacts/release/signed-uninstaller/*.exe
           if-no-files-found: error
