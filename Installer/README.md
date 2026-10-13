@@ -24,9 +24,13 @@ For an already configured Windows Azure CLI session, use `-SigningAuthentication
 
 ## CI and validation
 
-Without `-Sign`, the build produces unsigned development artifacts and needs no Azure access. The existing Windows workflow continues to use this mode. Unattended signing requires an explicitly configured Azure identity with a GitHub OIDC trust and a role limited to the signing profile; no service identity, secret, or new GitHub permission is created by this change.
+Without `-Sign`, the local build produces unsigned development artifacts and needs no Azure access. Pull request checks use this mode and never log in to Azure. Main-branch builds and manual runs of the Windows installer workflow use GitHub OIDC, then `-Sign -SigningAuthentication AzureCli`. Both portable ZIP variants are signed, and all three downloadable packages are included in `SHA256SUMS.txt` after signing.
 
-Run lifecycle validation **only on a disposable Windows machine**. With a signed installer, add `-RequireSigned` to `Installer/Test.ps1` so it verifies setup and the installed app, DLLs, and uninstaller along with the existing installation, repair, migration, and removal checks. The existing workflow deliberately removes its runner's desktop runtime and must never be run on a personal workstation.
+The dedicated `avitex-mod-manager-github` Entra app has only the Certificate Profile Signer role at `avitex-signing/mod-manager`. Its permanent federated credential trusts issuer `https://token.actions.githubusercontent.com`, audience `api://AzureADTokenExchange`, and the exact subject `repo:joshua-small/qsys-mod-manager:ref:refs/heads/main`. PR tokens cannot satisfy that subject. The repository variables `SIGNING_AZURE_CLIENT_ID`, `SIGNING_AZURE_TENANT_ID`, and `SIGNING_AZURE_SUBSCRIPTION_ID` contain public identifiers; no client secret is stored. Azure Login is pinned to a release commit and cleans up its CLI login after the job.
+
+Manual runs on other branches require an explicitly provisioned matching federated credential. Temporary bootstrap branch trust must be removed after validation and merge. A future repository transfer to Avitex requires updating the exact OIDC subject before signed builds can resume.
+
+Run lifecycle validation **only on a disposable Windows machine**. With a signed installer, add `-RequireSigned` to `Installer/Test.ps1` so it verifies setup and the installed app, DLLs, and uninstaller along with the existing installation, repair, migration, and removal checks. The signed GitHub workflow enables this check. The workflow deliberately removes its runner's desktop runtime and must never be run on a personal workstation.
 
 The build does not publish a release. Publish only the final setup and portable ZIP after validation; do not redistribute an intermediate payload or unsigned CI build as a signed release.
 
