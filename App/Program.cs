@@ -24,7 +24,9 @@ internal static class Program
             ApplyResult result;
             try
             {
+                if (new FileInfo(args[1]).Length > CatalogTrust.Limit * 2) throw new InvalidDataException("Oversized operation request.");
                 var plan = Data.Read<OperationPlan>(File.ReadAllBytes(args[1]));
+                if (plan.CatalogProof is not null) Catalog.Activate(plan.CatalogProof);
                 result = new Manager(plan.Target).Apply(plan);
             }
             catch (Exception error) { result = new(false, error.GetBaseException().Message, null); }

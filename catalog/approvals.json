@@ -1,0 +1,113 @@
+{
+  "schema": 1,
+  "mods": [
+    {
+      "id": "schematic-tools",
+      "name": "Schematic Tools",
+      "repository": "joshua-small/qsys-schematic-tools",
+      "module": "Designer.Modules.SelectionProbe.dll",
+      "legacyMarker": ".schematic-tools-enabled",
+      "layouts": [
+        {
+          "schema": 1,
+          "files": [
+            {
+              "name": "Designer.Modules.SelectionProbe.dll",
+              "shared": false,
+              "sha256": null
+            },
+            {
+              "name": "0Harmony.dll",
+              "shared": true,
+              "sha256": "fd77b88724f4104440df0cf979a851d35eec75ea3a7e86297d04abe47c71aff6"
+            },
+            {
+              "name": "AutomaticGeometry.Harmony.LICENSE.txt",
+              "shared": true,
+              "sha256": "407ddd98200c9f17f49942b5a7791e288a2bd553b59bf2f462db87dbb21c50bc"
+            },
+            {
+              "name": ".schematic-tools-enabled",
+              "shared": false,
+              "sha256": null
+            }
+          ]
+        },
+        {
+          "schema": 2,
+          "files": [
+            {
+              "name": "Designer.Modules.SelectionProbe.dll",
+              "shared": false,
+              "sha256": null
+            },
+            {
+              "name": "0Harmony.dll",
+              "shared": true,
+              "sha256": "fd77b88724f4104440df0cf979a851d35eec75ea3a7e86297d04abe47c71aff6"
+            },
+            {
+              "name": "AutomaticGeometry.Harmony.LICENSE.txt",
+              "shared": true,
+              "sha256": "407ddd98200c9f17f49942b5a7791e288a2bd553b59bf2f462db87dbb21c50bc"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "automatic-geometry",
+      "name": "Automatic Geometry",
+      "repository": "joshua-small/qsys-automatic-geometry",
+      "module": "Designer.Modules.AutomaticGeometry.dll",
+      "legacyMarker": ".automatic-geometry-enabled",
+      "layouts": [
+        {
+          "schema": 1,
+          "files": [
+            {
+              "name": "Designer.Modules.AutomaticGeometry.dll",
+              "shared": false,
+              "sha256": null
+            },
+            {
+              "name": "0Harmony.dll",
+              "shared": true,
+              "sha256": "fd77b88724f4104440df0cf979a851d35eec75ea3a7e86297d04abe47c71aff6"
+            },
+            {
+              "name": "AutomaticGeometry.Harmony.LICENSE.txt",
+              "shared": true,
+              "sha256": "407ddd98200c9f17f49942b5a7791e288a2bd553b59bf2f462db87dbb21c50bc"
+            },
+            {
+              "name": ".automatic-geometry-enabled",
+              "shared": false,
+              "sha256": null
+            }
+          ]
+        },
+        {
+          "schema": 2,
+          "files": [
+            {
+              "name": "Designer.Modules.AutomaticGeometry.dll",
+              "shared": false,
+              "sha256": null
+            },
+            {
+              "name": "0Harmony.dll",
+              "shared": true,
+              "sha256": "fd77b88724f4104440df0cf979a851d35eec75ea3a7e86297d04abe47c71aff6"
+            },
+            {
+              "name": "AutomaticGeometry.Harmony.LICENSE.txt",
+              "shared": true,
+              "sha256": "407ddd98200c9f17f49942b5a7791e288a2bd553b59bf2f462db87dbb21c50bc"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

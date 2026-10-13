@@ -9,28 +9,25 @@ public sealed record CatalogSnapshot(DateTimeOffset FetchedUtc, CatalogDocument 
 
 public sealed class OnlineCatalog : IDisposable
 {
-    public const string IndexUrl = "https://raw.githubusercontent.com/joshua-small/qsys-mod-manager/main/catalog/index.json";
+    public const string IndexUrl = "https://raw.githubusercontent.com/joshua-small/qsys-mod-catalog/published/catalog/feed.json";
     private readonly HttpClient client;
     private readonly string cache;
-    private const int IndexLimit = 256 * 1024, PackageLimit = 24 * 1024 * 1024;
+    private const int IndexLimit = CatalogTrust.Limit, PackageLimit = 24 * 1024 * 1024;
     public OnlineCatalog(string dataDirectory, HttpClient? client = null)
     {
         this.client = client ?? new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(45) };
         this.client.DefaultRequestHeaders.UserAgent.ParseAdd("QDS-Mod-Manager/0.2");
-        cache = Path.Combine(dataDirectory, "catalog-cache.json");
+        cache = Path.Combine(dataDirectory, "signed-catalog-cache.json");
     }
-    public static string Repository(string id) => "joshua-small/" + (id switch
+    public static string Repository(string id) => Catalog.Mod(id).Repository;
+    public static CatalogDocument Validate(CatalogDocument document, ApprovalDocument? approvals = null)
     {
-        "schematic-tools" => "qsys-schematic-tools", "automatic-geometry" => "qsys-automatic-geometry",
-        _ => throw new InvalidDataException("This mod needs a newer manager.")
-    });
-    public static CatalogDocument Validate(CatalogDocument document)
-    {
-        if (document.Schema != 1 || document.Mods.Length > 100 || document.Mods.Select(m => m.Id).Distinct().Count() != document.Mods.Length)
+        approvals ??= Catalog.Approvals;
+        if (document.Schema != 1 || document.Mods.Length > 256 || document.Mods.Select(m => m.Id).Distinct().Count() != document.Mods.Length)
             throw new InvalidDataException("Unsupported catalog.");
         foreach (var mod in document.Mods)
         {
-            if (mod.Name != Catalog.Mod(mod.Id).Name || mod.Repository != Repository(mod.Id) || mod.Description.Length > 4000 || mod.Releases.Length is < 1 or > 100
+            if (mod.Name != approvals.Mod(mod.Id).Name || mod.Repository != approvals.Mod(mod.Id).Repository || mod.Description.Length > 4000 || mod.Releases.Length is < 1 or > 100
                 || mod.Releases.Select(r => r.Version).Distinct().Count() != mod.Releases.Length) throw new InvalidDataException("Invalid catalog entry.");
             foreach (var release in mod.Releases)
             {
@@ -54,15 +51,17 @@ public sealed class OnlineCatalog : IDisposable
         try
         {
             var bytes = await Read(new Uri(IndexUrl), IndexLimit, cancellation);
-            var document = Validate(Data.Read<CatalogDocument>(bytes));
-            var snapshot = new CatalogSnapshot(DateTimeOffset.UtcNow, document);
-            Save(cache, Data.Bytes(snapshot)); return snapshot;
+            var proof = Data.Read<SignedCatalog>(bytes);
+            var feed = CatalogTrust.Verify(proof); ApprovalDocument.Preserve(Catalog.Approvals, feed.Approvals);
+            Save(cache, bytes); Catalog.Activate(proof);
+            var snapshot = new CatalogSnapshot(DateTimeOffset.UtcNow, Catalog.Current);
+            return snapshot;
         }
         catch (Exception error) when (error is not OperationCanceledException || !cancellation.IsCancellationRequested)
         {
             if (!File.Exists(cache) || new FileInfo(cache).Length > IndexLimit) throw;
-            var snapshot = Data.Read<CatalogSnapshot>(File.ReadAllBytes(cache)); Validate(snapshot.Document);
-            return snapshot with { Offline = true };
+            Catalog.Activate(Data.Read<SignedCatalog>(File.ReadAllBytes(cache)));
+            return new(File.GetLastWriteTimeUtc(cache), Catalog.Current, true);
         }
     }
     public async Task<ModPackage> Download(CatalogItem item, CatalogRelease release, string directory, CancellationToken cancellation)
@@ -83,25 +82,22 @@ public sealed class OnlineCatalog : IDisposable
         }
         finally { if (File.Exists(staging)) File.Delete(staging); }
     }
-    public async Task<PresentationDocument?> FetchPresentation(CancellationToken cancellation)
+    public void LoadCached()
     {
-        string path = Path.Combine(Path.GetDirectoryName(cache)!, "presentation-cache.json");
-        try
-        {
-            var bytes = await Read(new Uri(IndexUrl.Replace("index.json", "presentation.json")), IndexLimit, cancellation);
-            var document = PresentationDocument.Validate(Data.Read<PresentationDocument>(bytes)); Save(path, bytes); return document;
-        }
-        catch (Exception error) when (error is not OperationCanceledException || !cancellation.IsCancellationRequested)
-        {
-            try { return File.Exists(path) && new FileInfo(path).Length <= IndexLimit ? PresentationDocument.Validate(Data.Read<PresentationDocument>(File.ReadAllBytes(path))) : null; } catch { return null; }
-        }
+        if (File.Exists(cache) && new FileInfo(cache).Length <= IndexLimit)
+            Catalog.Activate(Data.Read<SignedCatalog>(File.ReadAllBytes(cache)));
     }
+    public Task<PresentationDocument?> FetchPresentation(CancellationToken cancellation) => Task.FromResult(Catalog.Presentation);
     public async Task<byte[]?> Thumbnail(ModPresentation mod, CancellationToken cancellation)
     {
         PresentationDocument.Validate(new(1, [mod])); if (mod.Thumbnail is null) return null;
         string path = Path.Combine(Path.GetDirectoryName(cache)!, "thumbnails", Data.Hash(System.Text.Encoding.UTF8.GetBytes(mod.Thumbnail)));
-        try { var bytes = await Read(new Uri(mod.Thumbnail), 1024 * 1024, cancellation); Save(path, bytes); return bytes; }
-        catch (Exception error) when (error is not OperationCanceledException || !cancellation.IsCancellationRequested) { return File.Exists(path) && new FileInfo(path).Length <= 1024 * 1024 ? File.ReadAllBytes(path) : null; }
+        byte[] Verified(byte[] bytes) { if (mod.ThumbnailSha256 is not null && Data.Hash(bytes) != mod.ThumbnailSha256) throw new InvalidDataException("Artwork hash differs from its catalog record."); return bytes; }
+        try { var bytes = Verified(await Read(new Uri(mod.Thumbnail), 1024 * 1024, cancellation)); Save(path, bytes); return bytes; }
+        catch (Exception error) when (error is not OperationCanceledException || !cancellation.IsCancellationRequested)
+        {
+            try { return File.Exists(path) && new FileInfo(path).Length <= 1024 * 1024 ? Verified(File.ReadAllBytes(path)) : null; } catch { return null; }
+        }
     }
     private static ModPackage Verify(string path, CatalogItem item, CatalogRelease release)
     {

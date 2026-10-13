@@ -17,6 +17,17 @@ if (args.Length == 1 && args[0] == "--manager-online")
     Console.WriteLine($"Verified published manager {release.Version}: {archive.Length} bytes, {release.Sha256}"); return;
 }
 byte[] host = Encoding.UTF8.GetBytes("test host identity"), common = Encoding.UTF8.GetBytes("test common identity");
+if (args.Length == 3 && args[0] == "--approval-tests")
+{
+    if (Directory.Exists(args[2])) throw new IOException("Use a fresh output directory.");
+    Directory.CreateDirectory(args[2]);
+    var source = Directory.GetFiles(args[1], "*.qdsmod").Select(ModPackage.Open).ToArray();
+    var results = new List<string>();
+    ApprovalChecks.Run(args[2], source.Where(p => p.Manifest.Id == "schematic-tools" && p.Manifest.Schema == 1).MaxBy(p => Version.Parse(p.Manifest.Version))!,
+        source.Where(p => p.Manifest.Id == "automatic-geometry" && p.Manifest.Schema == 1).MaxBy(p => Version.Parse(p.Manifest.Version))!, host, common, results);
+    File.WriteAllBytes(Path.Combine(args[2], "results.json"), Data.Bytes(results));
+    Console.WriteLine(results.Count + " approval and markerless migration checks passed."); return;
+}
 if (args.Length == 3 && args[0] == "--seed-preview")
 {
     string fixture = Path.GetFullPath(args[1]);
@@ -34,6 +45,13 @@ if (args.Length == 2 && args[0] == "--online")
     foreach (var item in snapshot.Document.Mods) foreach (var release in item.Releases)
     {
         var package = await catalog.Download(item, release, Path.Combine(directory, "packages"), default);
+        // Exercise every live mod above, but keep deterministic legacy fixtures for lifecycle tests.
+        // New community approvals must not make a later test process depend on a mutable live catalog.
+        if (Catalog.Bundled.Mods.Any(m => m.Id == item.Id && m.Releases.Any(r => r.Sha256 == release.Sha256)))
+        {
+            Directory.CreateDirectory(Path.Combine(directory, "test-packages"));
+            File.Copy(package.Path, Path.Combine(directory, "test-packages", release.Sha256 + ".qdsmod"));
+        }
         verified.Add(new { id = item.Id, version = package.Manifest.Version, sha256 = package.ArchiveHash });
     }
     File.WriteAllBytes(Path.Combine(directory, "result.json"), Data.Bytes(new { status = "live downloads verified", verified }));
@@ -168,5 +186,6 @@ BadPackage("unsupported-file-rejected", zip =>
 });
 await CatalogChecks.Run(latest, output, checks);
 ProfileChecks.Run(output, old, latest, geometry, host, common, checks);
+ApprovalChecks.Run(output, latest, geometry, host, common, checks);
 File.WriteAllBytes(Path.Combine(output, "result.json"), Data.Bytes(new { status = "complete", checks }));
 Console.WriteLine($"{checks.Count} package, transaction and recovery checks passed.");

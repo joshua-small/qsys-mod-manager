@@ -1,5 +1,7 @@
 # Q-SYS Mod Manager
 
+Mod descriptions, artwork and release notes are owned by each approved mod repository. See [catalog publishing](docs/CATALOG-PUBLISHING.md) for the separate [approved catalog](https://github.com/joshua-small/qsys-mod-catalog), release workflow, approval process and historical-version guarantees. Starting with 0.7.0, new approved mods are loaded from its signed feed without a manager rebuild. Modern packages use no enable-marker files; historical packages retain the files required to restore their exact versions.
+
 Find, install, and manage mods for Q-SYS Designer.
 
 1. Download **Q-SYS-Mod-Manager-Setup** from [Releases](https://github.com/joshua-small/qsys-mod-manager/releases/latest), run it, and open **Q-SYS Mod Manager** from Start. Setup includes the .NET Desktop Runtime and asks for administrator permission. Windows x64 is required.

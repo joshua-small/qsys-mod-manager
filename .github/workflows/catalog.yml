@@ -1,0 +1,25 @@
+name: Catalog
+on:
+  workflow_dispatch:
+  pull_request:
+    paths: ['CatalogTool/**', 'CatalogTests/**', 'Core/**', 'Tests/**', 'catalog/**', '.github/workflows/catalog.yml', '.github/workflows/publish-mod-catalog.yml']
+  push:
+    branches: [main]
+    paths: ['CatalogTool/**', 'CatalogTests/**', 'Core/**', 'Tests/**', 'catalog/**', '.github/workflows/catalog.yml', '.github/workflows/publish-mod-catalog.yml']
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+      - name: Verify published packages and publishing contracts
+        run: |
+          dotnet run --project Tests/QdsModManager.Tests.csproj -- --online artifacts/downloads
+          dotnet run --project CatalogTests/QdsModManager.CatalogTests.csproj -- artifacts/downloads/test-packages artifacts/publishing-tests
+          dotnet run --project CatalogTool/QdsModManager.CatalogTool.csproj -- verify-feed Tests/Fixtures/catalog-signed.json

@@ -2,4 +2,12 @@
   <PropertyGroup><TargetFramework>net10.0</TargetFramework><Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings></PropertyGroup>
   <ItemGroup><InternalsVisibleTo Include="QdsModManager.Tests" /></ItemGroup>
   <ItemGroup><EmbeddedResource Include="../catalog/presentation.json" LogicalName="QdsModManager.Presentation.json" /></ItemGroup>
+  <ItemGroup><EmbeddedResource Include="../catalog/index.json" LogicalName="QdsModManager.Catalog.json" /></ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="QdsModManager.CatalogTool" />
+    <InternalsVisibleTo Include="QdsModManager.CatalogTests" />
+    <InternalsVisibleTo Include="QdsModManager.Pack" />
+    <EmbeddedResource Include="../catalog/approvals.json" LogicalName="QdsModManager.Approvals.json" />
+    <EmbeddedResource Include="../catalog/signing-public-key.pem" LogicalName="QdsModManager.CatalogKey.pem" />
+  </ItemGroup>
 </Project>

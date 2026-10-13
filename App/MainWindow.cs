@@ -69,6 +69,7 @@ internal sealed partial class MainWindow : Window
         Icon = System.Windows.Media.Imaging.BitmapDecoder.Create(new Uri("pack://application:,,,/Assets/qmm.ico"), System.Windows.Media.Imaging.BitmapCreateOptions.None, System.Windows.Media.Imaging.BitmapCacheOption.OnLoad).Frames.OrderByDescending(frame => frame.PixelWidth).First();
         themes = new Themes(this, Path.Combine(userData, "settings.json")); online = new OnlineCatalog(userData);
         SetResourceReference(BackgroundProperty, "Page"); SetResourceReference(ForegroundProperty, "Text"); FontFamily = new System.Windows.Media.FontFamily("Segoe UI"); FontSize = 14;
+        try { online.LoadCached(); snapshot = new(DateTimeOffset.UtcNow, Catalog.Current, true); } catch { /* Invalid caches never expand trusted package permissions. */ }
         BuildLayout();
         theme.ItemsSource = new[] { new ThemeChoice("Follow System", Appearance.System), new ThemeChoice("Light", Appearance.Light), new ThemeChoice("Dark", Appearance.Dark) };
         theme.SelectedItem = theme.Items.Cast<ThemeChoice>().Single(t => t.Value == themes.Settings.Theme);
@@ -176,7 +177,8 @@ internal sealed partial class MainWindow : Window
         SetButtonIcon(toggle, row?.Local?.Enabled is true ? "Prohibited" : "CheckmarkCircle");
         undo.Content = inspection?.Pending is not null ? "Recover interrupted change" : "Undo last change"; undo.IsEnabled = !busy && inspection is not null && (inspection.Pending is not null || inspection.CanUndo);
         target.IsEnabled = mods.IsEnabled = versions.IsEnabled = scope.IsEnabled = search.IsEnabled = refreshCatalog.IsEnabled = !busy;
-        repositoryLink.IsEnabled = row is not null; repositoryLink.NavigateUri = row is null ? null : new Uri("https://github.com/" + OnlineCatalog.Repository(row.Id));
+        repositoryLink.IsEnabled = row is not null; repositoryLink.NavigateUri = row is null ? null :
+            new Uri(presentation?.Mods.FirstOrDefault(m => m.Id == row.Id)?.HelpUrl ?? "https://github.com/" + OnlineCatalog.Repository(row.Id));
         repositoryLink.ToolTip = row is null ? "Select a mod to view its repository." : "Open " + row.Name + " on GitHub in your browser.";
         System.Windows.Automation.AutomationProperties.SetName(repositoryLink, row is null ? "View on GitHub" : "View " + row.Name + " on GitHub");
         RefreshSidebar();
@@ -198,7 +200,7 @@ internal sealed partial class MainWindow : Window
         try { snapshot = await online.Fetch(cancellation.Token); presentation = await online.FetchPresentation(cancellation.Token) ?? PresentationDocument.Bundled(); await LoadThumbnails(cancellation.Token); catalogStatus.Text = snapshot.Offline ? "Offline · saved catalog from " + snapshot.FetchedUtc.ToLocalTime().ToString("g") : "Catalog up to date · " + snapshot.Document.Mods.Length + " mods"; }
         catch (OperationCanceledException) { catalogStatus.Text = "Catalog refresh canceled."; }
         catch (Exception error) { catalogStatus.Text = "Catalog unavailable. Local packages still work. " + error.GetBaseException().Message; }
-        finally { busy = false; network = null; Filter(); Buttons(); }
+        finally { busy = false; network = null; Refresh(); Filter(); Buttons(); }
     }
     private async Task Install()
     {

@@ -5,13 +5,13 @@ namespace QdsModManager;
 
 public sealed record InstalledMod(string Id, string Version, string ArchiveHash, bool Enabled);
 public sealed record RegistryState(int Schema, Dictionary<string, InstalledMod> Mods, ModProfile? Profile = null, bool Suspended = false);
-public sealed record OperationPlan(int Schema, string Action, string Target, string ModId, string? PackagePath, string? PackageHash, string ExpectedStamp, string[] ChangedFiles, ProfileChange? Group = null);
-public sealed record Journal(int Schema, string Id, string Action, string Status, Dictionary<string, string?> Before, Dictionary<string, string?> After, string? BeforeState, string? AfterState, string AfterStamp, string? Error);
+public sealed record OperationPlan(int Schema, string Action, string Target, string ModId, string? PackagePath, string? PackageHash, string ExpectedStamp, string[] ChangedFiles, ProfileChange? Group = null, SignedCatalog? CatalogProof = null);
+public sealed record Journal(int Schema, string Id, string Action, string Status, Dictionary<string, string?> Before, Dictionary<string, string?> After, string? BeforeState, string? AfterState, string AfterStamp, string? Error, string? FileSetSha256 = null);
 public sealed record ModStatus(string Id, string Name, string Version, string Status, bool Managed, bool Enabled, string Description);
-public sealed record Inspection(string Target, bool Running, string Stamp, ModStatus[] Mods, string? Pending, bool CanUndo, ModProfile? Profile = null, bool Suspended = false, string[]? Unmanaged = null);
+public sealed record Inspection(string Target, bool Running, string Stamp, ModStatus[] Mods, string? Pending, bool CanUndo, ModProfile? Profile = null, bool Suspended = false, string[]? Unmanaged = null, string? AppliedStamp = null, string? LegacyStamp = null);
 public sealed record ApplyResult(bool Success, string Message, string? Transaction);
 
-/// <summary>Only the two known bundles and pinned shared files may be changed.</summary>
+/// <summary>Only catalog-approved file layouts may be changed; vendor and unmanaged files are preserved.</summary>
 public sealed class Manager
 {
     private readonly string root, registry;
@@ -66,6 +66,8 @@ public sealed class Manager
     private Dictionary<string, string?> Current() => Catalog.FileNames.ToDictionary(n => n, n => HashIfFile(FilePath(n)), StringComparer.Ordinal);
     private static string Stamp(Dictionary<string, string?> files, string? state) => Data.Hash(Data.Bytes(new { files, state }));
     private string Stamp() => Stamp(Current(), HashIfFile(Local("state.json")));
+    // Historical journals cover the approved file set at their creation, in its original order.
+    private string JournalStamp(Journal journal) => Stamp(journal.After.Keys.ToDictionary(n => n, n => HashIfFile(FilePath(n))), HashIfFile(Local("state.json")));
     private RegistryState State()
     {
         string path = Local("state.json");
@@ -98,8 +100,8 @@ public sealed class Manager
             foreach (var file in Stored(entry).Manifest.Files.Where(f => !f.Shared))
                 if (current[file.Name] != (entry.Enabled && !state.Suspended ? file.Sha256 : null))
                     throw new InvalidDataException("An installed mod file changed outside the manager: " + file.Name + ". Restore that file before continuing.");
-        foreach (var (name, hash) in new[] { (Catalog.Harmony, Catalog.HarmonyHash), (Catalog.License, Catalog.LicenseHash) })
-            if (current[name] is { } value && value != hash) throw new InvalidDataException("A shared dependency has a different version: " + name + ". It will not be overwritten.");
+        foreach (var file in Catalog.Mods.SelectMany(m => m.Layouts).SelectMany(l => l.Files).Where(f => f.Shared).Distinct())
+            if (current[file.Name] is { } value && value != file.Sha256) throw new InvalidDataException("A shared dependency has a different version: " + file.Name + ". It will not be overwritten.");
     }
     private Journal[] Journals()
     {
@@ -107,10 +109,13 @@ public sealed class Manager
         return Directory.GetFiles(directory, "*.json").OrderDescending().Select(p =>
         {
             Guard(p); var journal = Data.Read<Journal>(File.ReadAllBytes(p));
-            if (journal.Schema != 1 || journal.Id != Path.GetFileNameWithoutExtension(p) || journal.Id.Any(c => !char.IsAsciiLetterOrDigit(c) && c != '-')) throw new InvalidDataException("Invalid transaction journal.");
+            if (journal.Schema is not (1 or 2) || journal.Id != Path.GetFileNameWithoutExtension(p) || journal.Id.Any(c => !char.IsAsciiLetterOrDigit(c) && c != '-')) throw new InvalidDataException("Invalid transaction journal.");
             foreach (var map in new[] { journal.Before, journal.After }) foreach (var (name, hash) in map) { Catalog.FileName(name); if (hash is not null) Data.CheckHash(hash); }
             foreach (var hash in new[] { journal.BeforeState, journal.AfterState }) if (hash is not null) Data.CheckHash(hash);
-            if (!journal.Before.Keys.Order().SequenceEqual(journal.After.Keys.Order()) || !journal.Before.Keys.Order().SequenceEqual(Catalog.FileNames.Order())) throw new InvalidDataException("Incomplete transaction journal.");
+            if (!journal.Before.Keys.Order().SequenceEqual(journal.After.Keys.Order()) || journal.Before.Count == 0) throw new InvalidDataException("Incomplete transaction journal.");
+            var names = journal.Before.Keys.Order(StringComparer.Ordinal).ToArray();
+            if (journal.Schema == 1 ? !names.SequenceEqual(Catalog.LegacyJournalFiles) : journal.FileSetSha256 != Data.Hash(Data.Bytes(names)))
+                throw new InvalidDataException("Transaction journal file set was changed or truncated.");
             return journal;
         }).ToArray();
     }
@@ -125,12 +130,15 @@ public sealed class Manager
                 return new ModStatus(mod.Id, mod.Name, entry.Version, !intact ? "Files changed outside manager" : state.Suspended && entry.Enabled ? "Suspended" : enabled ? "Enabled" : "Disabled", true, enabled, mod.Description);
             }
             var match = available.FirstOrDefault(p => p.Manifest.Id == mod.Id && p.Manifest.Files.All(f => current[f.Name] == f.Sha256));
-            bool present = current[mod.Module] is not null || current[mod.Marker] is not null;
+            bool present = mod.Layouts.SelectMany(l => l.Files).Where(f => !f.Shared).Any(f => current[f.Name] is not null);
             return new ModStatus(mod.Id, mod.Name, match?.Manifest.Version ?? (present ? "Unknown" : "—"), match is not null ? "Installed · not managed yet" : present ? "Unrecognized installed files" : "Not installed", false, present, mod.Description);
         }).ToArray();
         var latest = history.FirstOrDefault(j => j.Status == "Complete");
         var unmanaged = Directory.GetFiles(root, "Designer.Modules.*.dll").Select(Path.GetFileName).Where(n => n is not null && !state.Mods.Values.Any(m => Catalog.Mod(m.Id).Module == n)).Cast<string>().Order().ToArray();
-        return new(root, running(root), Stamp(), rows, history.FirstOrDefault(j => j.Status == "Pending")?.Id, latest is not null && latest.AfterStamp == Stamp(), AppliedProfile(state), state.Suspended, unmanaged);
+        var profile = AppliedProfile(state);
+        string appliedStamp = Data.Hash(Data.Bytes(new { profile, state.Suspended }));
+        string legacyStamp = Stamp(Catalog.LegacyFileOrder.ToDictionary(n => n, n => current[n]), HashIfFile(Local("state.json")));
+        return new(root, running(root), Stamp(), rows, history.FirstOrDefault(j => j.Status == "Pending")?.Id, latest is not null && latest.AfterStamp == JournalStamp(latest), profile, state.Suspended, unmanaged, appliedStamp, legacyStamp);
     }
     private ModProfile AppliedProfile(RegistryState state) => state.Profile ?? ModProfile.Create(Path.GetFileName(root) + " · initial", state.Mods.Values, Data.Hash(Encoding.UTF8.GetBytes(root.ToUpperInvariant()))[..32]);
     public ModPackage[] CachedPackages()
@@ -148,7 +156,7 @@ public sealed class Manager
         if (action == "Undo")
         {
             var last = Journals().FirstOrDefault(j => j.Status == "Complete") ?? throw new InvalidOperationException("No previous change is available.");
-            if (last.AfterStamp != Stamp()) throw new InvalidOperationException("The installation changed after the last operation; undo will not overwrite it.");
+            if (last.AfterStamp != JournalStamp(last)) throw new InvalidOperationException("The installation changed after the last operation; undo will not overwrite it.");
             foreach (var (name, hash) in last.Before) if (current[name] != hash) files[name] = Object(hash);
             return new(last.BeforeState is null ? null : Data.Read<RegistryState>(Object(last.BeforeState)!), files, null);
         }
@@ -161,11 +169,16 @@ public sealed class Manager
                 package = ModPackage.Open(packagePath ?? throw new InvalidOperationException("Choose a package first."));
                 if (package.Manifest.Id != id) throw new InvalidDataException("Package selection changed.");
                 if (action == "Adopt" && (installed is not null || package.Manifest.Files.Any(f => current[f.Name] != f.Sha256))) throw new InvalidOperationException("Only an exact existing package can be registered.");
+                var previousFiles = installed is null ? [] : Stored(installed).Manifest.Files;
                 foreach (var file in package.Manifest.Files)
                 {
-                    if (installed is null && current[file.Name] is not null && current[file.Name] != file.Sha256) throw new InvalidOperationException("An existing file is not recognized. It will not be overwritten: " + file.Name);
+                    bool owned = previousFiles.Any(f => !f.Shared && f.Name == file.Name);
+                    if (!file.Shared && !owned && current[file.Name] is not null && current[file.Name] != file.Sha256) throw new InvalidOperationException("An existing file is not recognized. It will not be overwritten: " + file.Name);
                     if (current[file.Name] != file.Sha256) files[file.Name] = package.Files[file.Name];
                 }
+                if (installed is not null)
+                    foreach (var previous in previousFiles.Where(f => !f.Shared && !package.Files.ContainsKey(f.Name)))
+                        if (current[previous.Name] is not null) files[previous.Name] = null;
                 state.Mods[id] = new(id, package.Manifest.Version, package.ArchiveHash, true);
                 break;
             case "Enable":
@@ -176,7 +189,7 @@ public sealed class Manager
             case "Disable": case "Remove":
                 if (installed is null) throw new InvalidOperationException("Register the existing mod before changing it.");
                 if (action == "Disable" && !installed.Enabled) throw new InvalidOperationException("This mod is already disabled.");
-                if (installed.Enabled) { files[mod.Module] = null; files[mod.Marker] = null; }
+                if (installed.Enabled) foreach (var file in Stored(installed).Manifest.Files.Where(f => !f.Shared)) files[file.Name] = null;
                 if (action == "Remove") state.Mods.Remove(id); else state.Mods[id] = installed with { Enabled = false };
                 break;
             default: throw new InvalidDataException("Unsupported manager action.");
@@ -196,17 +209,20 @@ public sealed class Manager
             var package = ModPackage.Open(reference.Path);
             if (reference.Sha256 != pin.Sha256 || package.ArchiveHash != pin.Sha256 || package.Manifest.Id != pin.Id || package.Manifest.Version != pin.Version) throw new InvalidDataException("Pinned package changed: " + pin.Id);
             resolved.Add(package); desired.Add(pin.Id, new(pin.Id, pin.Version, pin.Sha256, pin.Enabled));
+            var previousFiles = state.Mods.TryGetValue(pin.Id, out var installed) ? Stored(installed).Manifest.Files : [];
             foreach (var file in package.Manifest.Files)
             {
                 bool enabled = pin.Enabled && !group.Suspended;
                 if (file.Shared && !enabled) continue;
                 string? hash = enabled || file.Shared ? file.Sha256 : null;
-                if (!file.Shared && !state.Mods.ContainsKey(pin.Id) && current[file.Name] is not null && current[file.Name] != hash) throw new InvalidOperationException("Unmanaged file remains and prevents this profile: " + file.Name);
+                bool owned = previousFiles.Any(f => !f.Shared && f.Name == file.Name);
+                if (!file.Shared && !owned && current[file.Name] is not null && current[file.Name] != hash) throw new InvalidOperationException("Unmanaged file remains and prevents this profile: " + file.Name);
                 if (current[file.Name] != hash) files[file.Name] = hash is null ? null : package.Files[file.Name];
             }
         }
-        foreach (var removed in state.Mods.Values.Where(m => !desired.ContainsKey(m.Id)))
-            foreach (var name in new[] { Catalog.Mod(removed.Id).Module, Catalog.Mod(removed.Id).Marker }) if (current[name] is not null) files[name] = null;
+        foreach (var previous in state.Mods.Values)
+            foreach (var file in Stored(previous).Manifest.Files.Where(f => !f.Shared))
+                if (!resolved.Any(p => p.Manifest.Id == previous.Id && p.Files.ContainsKey(file.Name)) && current[file.Name] is not null) files[file.Name] = null;
         return new(new(2, desired, group.Profile, group.Suspended), files, null, resolved.ToArray());
     }
     public OperationPlan PrepareProfile(ModProfile profile, IEnumerable<ModPackage> packages, bool suspended = false, string action = "Profile")
@@ -215,17 +231,17 @@ public sealed class Manager
         var available = packages.ToArray();
         var group = new ProfileChange(profile, profile.Mods.Select(pin => { var p = available.FirstOrDefault(p => p.ArchiveHash == pin.Sha256) ?? throw new InvalidOperationException("Missing exact package: " + pin.Id + " " + pin.Version); return new ProfilePackage(pin.Id, p.Path, p.ArchiveHash); }).ToArray(), suspended);
         var change = BuildGroup(group);
-        return new(2, action, root, "", null, null, Stamp(), change.Files.Keys.ToArray(), group);
+        return new(2, action, root, "", null, null, Stamp(), change.Files.Keys.ToArray(), group, Catalog.Proof);
     }
     public OperationPlan Prepare(string action, string id = "", string? packagePath = null)
     {
         if (action == "Recover")
         {
             Host(); var pending = Journals().SingleOrDefault(j => j.Status == "Pending") ?? throw new InvalidOperationException("Nothing needs recovery.");
-            return new(1, action, root, "", null, null, Stamp(), pending.Before.Where(k => k.Value != pending.After[k.Key]).Select(k => k.Key).ToArray());
+            return new(1, action, root, "", null, null, Stamp(), pending.Before.Where(k => k.Value != pending.After[k.Key]).Select(k => k.Key).ToArray(), CatalogProof: Catalog.Proof);
         }
         var change = Build(action, id, packagePath);
-        return new(1, action, root, id, change.Package?.Path, change.Package?.ArchiveHash, Stamp(), change.Files.Keys.ToArray());
+        return new(1, action, root, id, change.Package?.Path, change.Package?.ArchiveHash, Stamp(), change.Files.Keys.ToArray(), CatalogProof: Catalog.Proof);
     }
     public ApplyResult Apply(OperationPlan plan)
     {
@@ -245,7 +261,8 @@ public sealed class Manager
         foreach (var (name, bytes) in change.Files) after[name] = bytes is null ? null : Put(bytes);
         string? afterState = change.State is null ? null : Put(Data.Bytes(change.State));
         string id = DateTime.UtcNow.ToString("yyyyMMddHHmmssfffffff") + "-" + Guid.NewGuid().ToString("N");
-        var journal = new Journal(1, id, plan.Action, "Pending", before, after, beforeState, afterState, Stamp(after, afterState), null);
+        var journal = new Journal(2, id, plan.Action, "Pending", before, after, beforeState, afterState, Stamp(after, afterState), null,
+            Data.Hash(Data.Bytes(before.Keys.Order(StringComparer.Ordinal).ToArray())));
         SaveJournal(journal);
         try
         {
@@ -274,7 +291,7 @@ public sealed class Manager
     private void Rollback(Journal journal)
     {
         var current = Current();
-        foreach (var (name, hash) in current) if (hash != journal.Before[name] && hash != journal.After[name]) throw new IOException("Recovery found an externally changed file: " + name);
+        foreach (var name in journal.Before.Keys) if (current[name] != journal.Before[name] && current[name] != journal.After[name]) throw new IOException("Recovery found an externally changed file: " + name);
         var state = HashIfFile(Local("state.json"));
         if (state != journal.BeforeState && state != journal.AfterState) throw new IOException("Manager state changed externally during recovery.");
         // Verify every backup before touching any destination.
@@ -282,7 +299,7 @@ public sealed class Manager
         foreach (var (name, hash) in journal.Before) if (current[name] != hash) { Host(); WriteTarget(name, Object(hash)); }
         Host();
         WriteAtomic(Local("state.json"), Object(journal.BeforeState));
-        if (Stamp() != Stamp(journal.Before, journal.BeforeState)) throw new IOException("Recovery verification failed.");
+        if (JournalStamp(journal) != Stamp(journal.Before, journal.BeforeState)) throw new IOException("Recovery verification failed.");
     }
     private void StorePackage(ModPackage package)
     {
