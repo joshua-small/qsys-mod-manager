@@ -17,6 +17,17 @@ if (args.Length == 1 && args[0] == "--manager-online")
     Console.WriteLine($"Verified published manager {release.Version}: {archive.Length} bytes, {release.Sha256}"); return;
 }
 byte[] host = Encoding.UTF8.GetBytes("test host identity"), common = Encoding.UTF8.GetBytes("test common identity");
+if (args.Length == 3 && args[0] == "--approval-tests")
+{
+    if (Directory.Exists(args[2])) throw new IOException("Use a fresh output directory.");
+    Directory.CreateDirectory(args[2]);
+    var source = Directory.GetFiles(args[1], "*.qdsmod").Select(ModPackage.Open).ToArray();
+    var results = new List<string>();
+    ApprovalChecks.Run(args[2], source.Where(p => p.Manifest.Id == "schematic-tools" && p.Manifest.Schema == 1).MaxBy(p => Version.Parse(p.Manifest.Version))!,
+        source.Where(p => p.Manifest.Id == "automatic-geometry" && p.Manifest.Schema == 1).MaxBy(p => Version.Parse(p.Manifest.Version))!, host, common, results);
+    File.WriteAllBytes(Path.Combine(args[2], "results.json"), Data.Bytes(results));
+    Console.WriteLine(results.Count + " approval and markerless migration checks passed."); return;
+}
 if (args.Length == 3 && args[0] == "--seed-preview")
 {
     string fixture = Path.GetFullPath(args[1]);
@@ -168,5 +179,6 @@ BadPackage("unsupported-file-rejected", zip =>
 });
 await CatalogChecks.Run(latest, output, checks);
 ProfileChecks.Run(output, old, latest, geometry, host, common, checks);
+ApprovalChecks.Run(output, latest, geometry, host, common, checks);
 File.WriteAllBytes(Path.Combine(output, "result.json"), Data.Bytes(new { status = "complete", checks }));
 Console.WriteLine($"{checks.Count} package, transaction and recovery checks passed.");

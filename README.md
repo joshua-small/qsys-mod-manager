@@ -1,6 +1,6 @@
 # Q-SYS Mod Manager
 
-Mod descriptions, artwork and release notes are owned by each approved mod repository. See [catalog publishing](docs/CATALOG-PUBLISHING.md) for the generated catalog, release workflow, approval process and historical-version guarantees.
+Mod descriptions, artwork and release notes are owned by each approved mod repository. See [catalog publishing](docs/CATALOG-PUBLISHING.md) for the separate [approved catalog](https://github.com/joshua-small/qsys-mod-catalog), release workflow, approval process and historical-version guarantees. Starting with 0.7.0, new approved mods are loaded from its signed feed without a manager rebuild. Modern packages use no enable-marker files; historical packages retain the files required to restore their exact versions.
 
 Find, install, and manage mods for Q-SYS Designer.
 

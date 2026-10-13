@@ -1,5 +1,3 @@
-This update was generated from the approved mods' published `qmm-catalog.json` release records. The generator verified repository-owned text, notes and artwork at immutable commits, then checked the release packages with the manager's existing package validator.
+# Catalog publication
 
-Review the changed presentation and version pins before merging. Existing pins and approved release records cannot be replaced. The bot does not approve or merge this PR. If GitHub holds bot-triggered checks for approval, approve the CI run and require successful checks before merging.
-
-See [the publishing contract](https://github.com/joshua-small/qsys-mod-manager/blob/main/docs/CATALOG-PUBLISHING.md) for ownership, verification and recovery.
+Live catalog changes are published in [qsys-mod-catalog](https://github.com/joshua-small/qsys-mod-catalog). New approvals use that repository's pull request template. Routine verified releases are generated on its published branch; they do not create manager pull requests.

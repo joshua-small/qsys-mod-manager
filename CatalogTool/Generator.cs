@@ -36,13 +36,13 @@ public static class Generator
             var notes = oldPresentation?.ReleaseNotes.ToDictionary(p => p.Key, p => p.Value) ?? [];
             notes[version] = record.ReleaseNotes;
             presentations[id] = latest || oldPresentation is null
-                ? new(id, record.Content.Author, Contract.ThumbnailUrl(record), record.Content.HelpUrl, notes.OrderBy(p => Version.Parse(p.Key)).ToDictionary(p => p.Key, p => p.Value))
+                ? new(id, record.Content.Author, Contract.ThumbnailUrl(record), record.Content.HelpUrl, notes.OrderBy(p => Version.Parse(p.Key)).ToDictionary(p => p.Key, p => p.Value), record.ThumbnailSha256)
                 : oldPresentation with { ReleaseNotes = notes.OrderBy(p => Version.Parse(p.Key)).ToDictionary(p => p.Key, p => p.Value) };
             receipts[(id, version)] = receipt;
         }
         var index = OnlineCatalog.Validate(new(1, items.Values.OrderBy(m => m.Id, StringComparer.Ordinal).ToArray()));
         var result = PresentationDocument.Validate(new(1, presentations.Values.OrderBy(m => m.Id, StringComparer.Ordinal).ToArray()));
-        if (Data.Bytes(index).Length > 256 * 1024 || Data.Bytes(result).Length > 256 * 1024)
+        if (Data.Bytes(index).Length > 1024 * 1024 || Data.Bytes(result).Length > 1024 * 1024)
             throw new InvalidDataException("Generated catalog exceeds manager download limits.");
         return (index, result, new(1, receipts.Values.OrderBy(r => r.Id, StringComparer.Ordinal).ThenBy(r => Version.Parse(r.Version)).ToArray()));
     }

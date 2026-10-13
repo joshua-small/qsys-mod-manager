@@ -8,11 +8,6 @@ using System.Text.Json.Serialization;
 
 namespace QdsModManager;
 
-public sealed record ModDefinition(string Id, string Name, string Module, string Marker)
-{
-    // The name remains an approved package identity. Display copy is generated from mod repositories.
-    public string Description => Catalog.Bundled.Mods.Single(m => m.Id == Id).Description;
-}
 public static class Catalog
 {
     public const string HostHash = "0e7150f8dc02e0159e019188780fb003ce025f5ec18c491609cf337d849bda60";
@@ -20,21 +15,35 @@ public static class Catalog
     public const string HarmonyHash = "fd77b88724f4104440df0cf979a851d35eec75ea3a7e86297d04abe47c71aff6";
     public const string LicenseHash = "407ddd98200c9f17f49942b5a7791e288a2bd553b59bf2f462db87dbb21c50bc";
     public const string Harmony = "0Harmony.dll", License = "AutomaticGeometry.Harmony.LICENSE.txt";
-    public static readonly ModDefinition[] Mods =
+    private static readonly ApprovalDocument bundledApprovals = ApprovalDocument.Validate(Resource<ApprovalDocument>("Approvals.json"));
+    private static ApprovalDocument approvals = bundledApprovals;
+    private static CatalogDocument? current;
+    public static SignedCatalog? Proof { get; private set; }
+    public static ApprovalDocument Approvals => approvals;
+    internal static string[] LegacyJournalFiles => bundledApprovals.Mods.SelectMany(m => m.Layouts.Where(l => l.Schema == 1)).SelectMany(l => l.Files).Select(f => f.Name).Distinct().Order(StringComparer.Ordinal).ToArray();
+    public static ModDefinition[] Mods => approvals.Mods;
+    public static CatalogDocument Bundled => OnlineCatalog.Validate(Resource<CatalogDocument>("Catalog.json"));
+    public static CatalogDocument Current => current ?? Bundled;
+    public static PresentationDocument? Presentation { get; private set; }
+    private static T Resource<T>(string name)
     {
-        new("schematic-tools", "Schematic Tools", "Designer.Modules.SelectionProbe.dll", ".schematic-tools-enabled"),
-        new("automatic-geometry", "Automatic Geometry", "Designer.Modules.AutomaticGeometry.dll", ".automatic-geometry-enabled")
-    };
-    private static readonly Lazy<CatalogDocument> bundled = new(() =>
+        using var stream = typeof(Catalog).Assembly.GetManifestResourceStream("QdsModManager." + name)!;
+        using var memory = new MemoryStream(); stream.CopyTo(memory); return Data.Read<T>(memory.ToArray());
+    }
+    public static void Activate(SignedCatalog envelope)
     {
-        using var stream = typeof(Catalog).Assembly.GetManifestResourceStream("QdsModManager.Catalog.json")!;
-        using var memory = new MemoryStream(); stream.CopyTo(memory);
-        return OnlineCatalog.Validate(Data.Read<CatalogDocument>(memory.ToArray()));
-    });
-    public static CatalogDocument Bundled => bundled.Value;
-    public static ModDefinition Mod(string id) => Mods.SingleOrDefault(m => m.Id == id) ?? throw new InvalidDataException("This package is not one of the supported mod bundles.");
-    public static string[] FileNames => Mods.SelectMany(m => new[] { m.Module, m.Marker }).Concat(new[] { Harmony, License }).ToArray();
-    public static void FileName(string name) { if (!FileNames.Contains(name, StringComparer.Ordinal)) throw new InvalidDataException("Unsupported package file: " + name); }
+        var feed = CatalogTrust.Verify(envelope);
+        ApprovalDocument.Preserve(approvals, feed.Approvals);
+        approvals = feed.Approvals; current = feed.Index; Presentation = feed.Presentation; Proof = envelope;
+    }
+    // Only build/publishing tools and test assemblies can use unsigned approval source files.
+    internal static void ForTool(ApprovalDocument document)
+    {
+        approvals = ApprovalDocument.Validate(document); current = null; Presentation = null; Proof = null;
+    }
+    public static ModDefinition Mod(string id) => approvals.Mod(id);
+    public static string[] FileNames => approvals.FileNames;
+    public static void FileName(string name) => approvals.FileName(name);
 }
 
 public static class Data
@@ -71,27 +80,28 @@ public sealed class ModPackage
         byte[] archiveBytes = File.ReadAllBytes(path);
         using var stream = new MemoryStream(archiveBytes);
         using var zip = new ZipArchive(stream, ZipArchiveMode.Read);
-        if (zip.Entries.Count != 5 || zip.Entries.Select(e => e.FullName).Distinct(StringComparer.OrdinalIgnoreCase).Count() != 5)
-            throw new InvalidDataException("A package must contain exactly one manifest and four distinct payload files.");
+        if (zip.Entries.Count is < 2 or > 33 || zip.Entries.Select(e => e.FullName).Distinct(StringComparer.OrdinalIgnoreCase).Count() != zip.Entries.Count)
+            throw new InvalidDataException("A package must contain one manifest and distinct approved payload files.");
         var manifest = Data.Read<PackageManifest>(Read(zip.GetEntry("manifest.json") ?? throw new InvalidDataException("Missing manifest."), 65536));
         var mod = Catalog.Mod(manifest.Id);
-        if (manifest.Schema != 1 || manifest.Name != mod.Name || !Version.TryParse(manifest.Version, out var version) || version.Build < 0
+        if (manifest.Schema is not (1 or 2) || manifest.Name != mod.Name || !Version.TryParse(manifest.Version, out var version) || version.Build < 0
             || manifest.HostSha256 != Catalog.HostHash || manifest.CommonSha256 != Catalog.CommonHash || manifest.Description.Length > 4000)
             throw new InvalidDataException("Unsupported package identity, version or Designer compatibility.");
-        var expected = new[] { mod.Module, mod.Marker, Catalog.Harmony, Catalog.License };
-        if (manifest.Files.Length != 4 || !manifest.Files.Select(f => f.Name).Order().SequenceEqual(expected.Order())) throw new InvalidDataException("Unexpected mod file set.");
+        var layout = mod.Layouts.SingleOrDefault(l => l.Schema == manifest.Schema && manifest.Files.Select(f => f.Name).Order().SequenceEqual(l.Files.Select(f => f.Name).Order()))
+            ?? throw new InvalidDataException("Package file set has not been approved.");
+        if (zip.Entries.Count != manifest.Files.Length + 1) throw new InvalidDataException("Unexpected archive entries.");
         var files = new Dictionary<string, byte[]>(StringComparer.Ordinal);
         foreach (var file in manifest.Files)
         {
             Catalog.FileName(file.Name); Data.CheckHash(file.Sha256);
-            if (file.Shared != (file.Name == Catalog.Harmony || file.Name == Catalog.License)) throw new InvalidDataException("Incorrect shared dependency declaration.");
+            var approved = layout.Files.Single(f => f.Name == file.Name);
+            if (file.Shared != approved.Shared || (approved.Sha256 is not null && file.Sha256 != approved.Sha256)) throw new InvalidDataException("Unapproved shared dependency or file hash.");
             byte[] contents = Read(zip.GetEntry("payload/" + file.Name) ?? throw new InvalidDataException("Missing payload."), 8 * 1024 * 1024);
             if (contents.LongLength != file.Length || Data.Hash(contents) != file.Sha256) throw new InvalidDataException("Package content does not match its manifest: " + file.Name);
             files.Add(file.Name, contents);
         }
-        if (files.Values.Sum(b => b.Length) > 16 * 1024 * 1024 || Data.Hash(files[Catalog.Harmony]) != Catalog.HarmonyHash || Data.Hash(files[Catalog.License]) != Catalog.LicenseHash)
-            throw new InvalidDataException("Package dependency or size does not match this manager's supported build.");
-        if (Encoding.UTF8.GetString(files[mod.Marker]).Trim() != Catalog.HostHash) throw new InvalidDataException("Invalid enable marker.");
+        if (files.Values.Sum(b => b.Length) > 16 * 1024 * 1024) throw new InvalidDataException("Package expansion exceeds limit.");
+        if (manifest.Schema == 1 && Encoding.UTF8.GetString(files[mod.Marker]).Trim() != Catalog.HostHash) throw new InvalidDataException("Invalid legacy enable marker.");
         using var pe = new PEReader(new MemoryStream(files[mod.Module]));
         var metadata = pe.GetMetadataReader(); var assembly = metadata.GetAssemblyDefinition();
         if (metadata.GetString(assembly.Name) != System.IO.Path.GetFileNameWithoutExtension(mod.Module) || assembly.Version != Normalize(version))

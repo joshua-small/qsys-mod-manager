@@ -1,9 +1,56 @@
 using System.Text;
+using System.Security.Cryptography;
 using QdsModManager;
 using QdsModManager.CatalogPublishing;
 
 try
 {
+    if (args.Length >= 2 && args[0] == "--approved-feed")
+    {
+        Catalog.Activate(Data.Read<SignedCatalog>(Contract.Read(args[1], CatalogTrust.Limit)));
+        args = args[2..];
+    }
+    // Approval files are trusted tooling inputs, never accepted as unsigned runtime permissions.
+    if (args.Length >= 2 && args[0] == "--approvals")
+    {
+        Catalog.ForTool(Data.Read<ApprovalDocument>(Contract.Read(args[1], CatalogTrust.Limit)));
+        args = args[2..];
+    }
+    if (args.Length == 3 && args[0] == "approvals")
+    {
+        var previous = Data.Read<ApprovalDocument>(Contract.Read(args[2], CatalogTrust.Limit));
+        var next = Data.Read<ApprovalDocument>(Contract.Read(args[1], CatalogTrust.Limit));
+        ApprovalDocument.Preserve(previous, next);
+        Console.WriteLine(next.Mods.Length + " approved package definitions validated; historical layouts retained."); return;
+    }
+    if (args.Length == 4 && args[0] == "sign")
+    {
+        var approvals = ApprovalDocument.Validate(Data.Read<ApprovalDocument>(Contract.Read(Path.Combine(args[1], "approvals.json"), CatalogTrust.Limit)));
+        Catalog.ForTool(approvals);
+        var documents = ReadCatalog(args[1]);
+        var feed = new CatalogFeed(1, approvals, OnlineCatalog.Validate(documents.Index), PresentationDocument.Validate(documents.Presentation), Data.Hash(Data.Bytes(documents.Sources)));
+        byte[] payload = Data.Bytes(feed);
+        using var key = ECDsa.Create(); key.ImportFromPem(File.ReadAllText(args[2]));
+        var envelope = new SignedCatalog(1, Convert.ToBase64String(payload), Convert.ToBase64String(key.SignData(payload, HashAlgorithmName.SHA256)));
+        _ = CatalogTrust.Verify(envelope); // Wrong signing key fails before publication.
+        if (Data.Bytes(envelope).Length > CatalogTrust.Limit) throw new InvalidDataException("Signed catalog is too large.");
+        File.WriteAllBytes(args[3], Data.Bytes(envelope)); Console.WriteLine("Catalog signed and verified."); return;
+    }
+    if (args.Length == 2 && args[0] == "verify-feed")
+    {
+        Catalog.Activate(Data.Read<SignedCatalog>(Contract.Read(args[1], CatalogTrust.Limit)));
+        Console.WriteLine("Signed catalog verified: " + Catalog.Mods.Length + " approved mods."); return;
+    }
+    if (args.Length == 2 && args[0] == "verify-baseline")
+    {
+        var feed = CatalogTrust.Verify(Data.Read<SignedCatalog>(Contract.Read(Path.Combine(args[1], "feed.json"), CatalogTrust.Limit)));
+        var documents = ReadCatalog(args[1]);
+        var approvals = Data.Read<ApprovalDocument>(Contract.Read(Path.Combine(args[1], "approvals.json"), CatalogTrust.Limit));
+        if (!Data.Bytes(feed.Approvals).SequenceEqual(Data.Bytes(approvals)) || !Data.Bytes(feed.Index).SequenceEqual(Data.Bytes(documents.Index))
+            || !Data.Bytes(feed.Presentation).SequenceEqual(Data.Bytes(documents.Presentation)) || feed.SourcesSha256 != Data.Hash(Data.Bytes(documents.Sources)))
+            throw new InvalidDataException("Published baseline files differ from their signed snapshot.");
+        Console.WriteLine("All published baseline files match the signed catalog."); return;
+    }
     if (args.Length == 4 && args[0] == "check")
     {
         var proposedSources = Sources(args[1]);
@@ -47,10 +94,10 @@ try
     if (args.Length == 3 && args[0] == "sync")
     {
         string directory = args[1];
-        var index = Data.Read<CatalogDocument>(Contract.Read(Path.Combine(directory, "index.json"), 256 * 1024));
-        var presentation = Data.Read<PresentationDocument>(Contract.Read(Path.Combine(directory, "presentation.json"), 256 * 1024));
+        var index = Data.Read<CatalogDocument>(Contract.Read(Path.Combine(directory, "index.json"), CatalogTrust.Limit));
+        var presentation = Data.Read<PresentationDocument>(Contract.Read(Path.Combine(directory, "presentation.json"), CatalogTrust.Limit));
         var path = Path.Combine(directory, "sources.json");
-        var sources = File.Exists(path) ? Data.Read<SourcesDocument>(Contract.Read(path, 256 * 1024)) : new(1, []);
+        var sources = File.Exists(path) ? Data.Read<SourcesDocument>(Contract.Read(path, CatalogTrust.Limit)) : new(1, []);
         using var github = new GitHub(); var records = await github.Collect(args[2]);
         var result = Generator.Merge(index, presentation, sources, records);
         // An approved record disappearing must not silently erase or unverify its pin.
@@ -69,8 +116,8 @@ catch (Exception error)
 static SourcesDocument Sources(string directory)
 {
     string path = Path.Combine(directory, "sources.json");
-    return File.Exists(path) ? Data.Read<SourcesDocument>(Contract.Read(path, 256 * 1024)) : new(1, []);
+    return File.Exists(path) ? Data.Read<SourcesDocument>(Contract.Read(path, CatalogTrust.Limit)) : new(1, []);
 }
 static (CatalogDocument Index, PresentationDocument Presentation, SourcesDocument Sources) ReadCatalog(string directory) =>
-    (Data.Read<CatalogDocument>(Contract.Read(Path.Combine(directory, "index.json"), 256 * 1024)),
-     Data.Read<PresentationDocument>(Contract.Read(Path.Combine(directory, "presentation.json"), 256 * 1024)), Sources(directory));
+    (Data.Read<CatalogDocument>(Contract.Read(Path.Combine(directory, "index.json"), CatalogTrust.Limit)),
+     Data.Read<PresentationDocument>(Contract.Read(Path.Combine(directory, "presentation.json"), CatalogTrust.Limit)), Sources(directory));

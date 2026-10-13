@@ -40,7 +40,8 @@ internal static class ProfileChecks
         Check(manager.CachedPackages().Any(p => p.ArchiveHash == latest.ArchiveHash) && manager.CachedPackages().Any(p => p.ArchiveHash == old.ArchiveHash), "Installation cache retains historical exact pins");
         string exported = Path.Combine(output, "roundtrip.qdsprofile"); File.WriteAllBytes(exported, Data.Bytes(next)); var imported = ModProfile.Import(exported);
         Check(imported.Id != next.Id && imported.Mods.SequenceEqual(next.Mods), "Profile import preserves exact metadata and creates a fresh identity"); library.Save(imported); library.Delete(imported.Id);
-        for (int fail = 1; fail <= 5; fail++)
+        int removalWrites = old.Manifest.Files.Count(f => !f.Shared) + geometry.Manifest.Files.Count(f => !f.Shared) + 1;
+        for (int fail = 1; fail <= removalWrites; fail++)
         {
             var engine = Fresh("failure-" + fail); engine.Apply(engine.PrepareProfile(initial, all)); string stamp = engine.Inspect(all).Stamp;
             engine.AfterWrite = n => { if (n == fail) throw new IOException("group failure"); };
@@ -48,7 +49,7 @@ internal static class ProfileChecks
             Check(engine.Inspect(all).Stamp == stamp && engine.Inspect(all).Pending is null, "Complete profile rollback after file " + fail);
         }
         var running = Fresh("running", true); Reject(() => running.Apply(running.PrepareProfile(initial, all)), "Running Designer blocks grouped changes");
-        foreach (int stop in new[] { 1, 5 })
+        foreach (int stop in new[] { 1, removalWrites })
         {
             var interrupted = Fresh("crash-" + stop); interrupted.Apply(interrupted.PrepareProfile(initial, all)); var original = interrupted.Inspect(all);
             var crashPlan = interrupted.PrepareProfile(ModProfile.Create("Empty"), all); string request = Path.Combine(output, "group-crash-" + stop + ".json"); File.WriteAllBytes(request, Data.Bytes(crashPlan));

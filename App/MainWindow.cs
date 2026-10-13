@@ -69,6 +69,7 @@ internal sealed partial class MainWindow : Window
         Icon = System.Windows.Media.Imaging.BitmapDecoder.Create(new Uri("pack://application:,,,/Assets/qmm.ico"), System.Windows.Media.Imaging.BitmapCreateOptions.None, System.Windows.Media.Imaging.BitmapCacheOption.OnLoad).Frames.OrderByDescending(frame => frame.PixelWidth).First();
         themes = new Themes(this, Path.Combine(userData, "settings.json")); online = new OnlineCatalog(userData);
         SetResourceReference(BackgroundProperty, "Page"); SetResourceReference(ForegroundProperty, "Text"); FontFamily = new System.Windows.Media.FontFamily("Segoe UI"); FontSize = 14;
+        try { online.LoadCached(); snapshot = new(DateTimeOffset.UtcNow, Catalog.Current, true); } catch { /* Invalid caches never expand trusted package permissions. */ }
         BuildLayout();
         theme.ItemsSource = new[] { new ThemeChoice("Follow System", Appearance.System), new ThemeChoice("Light", Appearance.Light), new ThemeChoice("Dark", Appearance.Dark) };
         theme.SelectedItem = theme.Items.Cast<ThemeChoice>().Single(t => t.Value == themes.Settings.Theme);
@@ -199,7 +200,7 @@ internal sealed partial class MainWindow : Window
         try { snapshot = await online.Fetch(cancellation.Token); presentation = await online.FetchPresentation(cancellation.Token) ?? PresentationDocument.Bundled(); await LoadThumbnails(cancellation.Token); catalogStatus.Text = snapshot.Offline ? "Offline · saved catalog from " + snapshot.FetchedUtc.ToLocalTime().ToString("g") : "Catalog up to date · " + snapshot.Document.Mods.Length + " mods"; }
         catch (OperationCanceledException) { catalogStatus.Text = "Catalog refresh canceled."; }
         catch (Exception error) { catalogStatus.Text = "Catalog unavailable. Local packages still work. " + error.GetBaseException().Message; }
-        finally { busy = false; network = null; Filter(); Buttons(); }
+        finally { busy = false; network = null; Refresh(); Filter(); Buttons(); }
     }
     private async Task Install()
     {
