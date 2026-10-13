@@ -22,7 +22,7 @@ internal sealed partial class MainWindow
         search.Text = "no matching mod fixture"; Check(mods.Items.Count == 0 && emptyList.Visibility == Visibility.Visible, "Empty search explains reset action"); search.Clear();
         scope.SelectedIndex = 1; Check(mods.Items.Count == 2, "Compatible filter includes supported mods");
         scope.SelectedIndex = 2; Check(mods.Items.Count == inspection!.Mods.Count(m => m.Managed || m.Enabled), "Installed filter reflects installation");
-        scope.SelectedIndex = 3; Check(mods.Items.Count == inspection.Mods.Count(m => m.Enabled), "Enabled filter reflects installation");
+        scope.SelectedIndex = 3; Check(mods.Items.Count == inspection.Mods.Count(m => m.Managed && m.Enabled), "Enabled filter reflects installation");
         scope.SelectedIndex = 4; Check(mods.Items.Count == inspection.Mods.Count(m => m.Managed && !m.Enabled), "Disabled filter reflects installation");
         scope.SelectedIndex = 5; Check(mods.Items.Count == AvailableUpdates().Length, "Updates filter agrees with update review"); scope.SelectedIndex = 0;
         Check(profiles.Items.Count > 0 && inspection.Profile is not null, "Existing configuration is represented as an initial profile");
@@ -48,5 +48,12 @@ internal sealed partial class MainWindow
         return checks.ToArray();
     }
     internal void SmokeDetails(bool show) { mods.SelectedIndex = show ? 0 : -1; UpdateLayout(); }
+    internal Action SmokeLongNames()
+    {
+        var originalRows = mods.ItemsSource; var originalProfiles = profiles.ItemsSource;
+        profiles.ItemsSource = new[] { ModProfile.Create(new string('P', 100)) }; profiles.SelectedIndex = 0;
+        mods.ItemsSource = mods.Items.Cast<ModRow>().Select(row => row with { Name = row.Name + " " + new string('M', 160), Remote = row.Remote is null ? null : row.Remote with { Description = string.Concat(Enumerable.Repeat("Long description fixture. ", 100)) } }).ToArray();
+        UpdateLayout(); return () => { profiles.ItemsSource = originalProfiles; mods.ItemsSource = originalRows; RefreshProfiles(); mods.SelectedItem = null; };
+    }
     internal void SmokeScale(double scale) { ((FrameworkElement)Content).LayoutTransform = new ScaleTransform(scale, scale); UpdateLayout(); }
 }

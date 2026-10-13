@@ -12,6 +12,7 @@ namespace QdsModManager.App;
 
 internal sealed record ModRow(string Id, string Name, string Installed, string Available, string Status, ModStatus? Local, CatalogItem? Remote)
 {
+    public override string ToString() => Name + ", " + Status + "; installed " + Installed + ", available " + Available;
     public string Summary => Remote?.Description ?? Catalog.Mod(Id).Description;
     public string VersionSummary => "Installed " + Installed + "  →  Available " + Available + " · " + (Status == "Not compatible" ? "Unsupported build" : "Designer 10.5");
     public string ActionName => "Actions for " + Name;
@@ -132,7 +133,7 @@ internal sealed partial class MainWindow : Window
             string status = local?.Status ?? "Not compatible";
             if (local?.Managed is true && status != "Files changed outside manager" && release is not null && Version.Parse(release.Version) > Version.Parse(local.Version)) status = "Update available";
             return new ModRow(mod.Id, mod.Name, local?.Version ?? "—", available, status, local, remote) { Thumbnail = thumbnails.GetValueOrDefault(mod.Id), CanManage = inspection is not null && inspection.Pending is null && !inspection.Suspended };
-        }).Where(row => (scope.SelectedIndex switch { 1 => inspection is not null, 2 => row.Local?.Managed is true || row.Local?.Enabled is true, 3 => row.Local?.Enabled is true, 4 => row.Local?.Managed is true && row.Local.Enabled is false, 5 => row.Status == "Update available", _ => true })
+        }).Where(row => (scope.SelectedIndex switch { 1 => inspection is not null && (row.Remote is null || row.Remote.Releases.Any(IsCompatible) || packages.Any(p => p.Manifest.Id == row.Id)), 2 => row.Local?.Managed is true || row.Local?.Enabled is true, 3 => row.Local?.Managed is true && row.Local.Enabled, 4 => row.Local?.Managed is true && row.Local.Enabled is false, 5 => row.Status == "Update available", _ => true })
             && OnlineCatalog.Matches(row.Remote ?? new(row.Id, row.Name, Catalog.Mod(row.Id).Description, OnlineCatalog.Repository(row.Id), Array.Empty<CatalogRelease>()), search.Text)).OrderBy(r => r.Name, StringComparer.OrdinalIgnoreCase).ToArray();
         mods.ItemsSource = rows; mods.SelectedItem = rows.FirstOrDefault(m => m.Id == selected); ShowMod();
         emptyList.Visibility = rows.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
@@ -162,7 +163,8 @@ internal sealed partial class MainWindow : Window
         var row = mods.SelectedItem as ModRow; var choice = versions.SelectedItem as VersionChoice;
         bool ready = !busy && inspection is not null && inspection.Pending is null && !inspection.Suspended;
         bool supported = choice is not null && (choice.Release is null ? inspection is not null : IsCompatible(choice.Release));
-        bool alreadyInstalled = row?.Local?.Managed is true && row.Local.Enabled && row.Local.Version == choice?.Version;
+        bool alreadyInstalled = row?.Local?.Managed is true && row.Local.Enabled && row.Local.Version == choice?.Version
+            && inspection?.Profile?.Mods.FirstOrDefault(p => p.Id == row.Id)?.Sha256 == (choice?.Package?.ArchiveHash ?? choice?.Release?.Sha256);
         install.Content = alreadyInstalled ? "Installed" : choice?.Package is null ? "Download & install" : row?.Local?.Managed is true ? "Install version" : "Install";
         SetButtonIcon(install, alreadyInstalled ? "Checkmark" : "ArrowDownload");
         install.IsEnabled = ready && supported && !alreadyInstalled;
@@ -177,7 +179,7 @@ internal sealed partial class MainWindow : Window
         RefreshSidebar();
         cancel.Visibility = busy && !applying ? Visibility.Visible : Visibility.Collapsed;
         checkUpdate.IsEnabled = !busy && !updateChecking; installUpdate.IsEnabled = !busy && !updateChecking && managerUpdate is not null;
-        availability.Text = row is null ? "" : supported ? "Compatible with your Designer" : "This version is not compatible with the selected Designer.";
+        availability.Text = row is null ? "" : "Installed: " + row.Installed + "\nLatest compatible: " + row.Available + "\n\n" + (supported ? "Verified for the supported Designer 10.5 build." : "This version does not match the selected Designer build.");
         availability.SetResourceReference(TextBlock.ForegroundProperty, supported ? "Muted" : "Bad");
         string? blocked = busy ? "Wait for the current operation to finish." : inspection is null ? "Choose a supported Designer installation." : inspection.Pending is not null ? "Recover the interrupted change before managing mods." : row is null ? "Select a mod first." : null;
         Explain(install, blocked ?? (choice is null ? "Choose a version first." : !supported ? "This version is not compatible with your Designer." : alreadyInstalled ? "This version is already installed and enabled." : "Install the selected version. You'll review the change before applying it."));
@@ -244,6 +246,7 @@ internal sealed partial class MainWindow : Window
     private async Task ExecutePlan(OperationPlan plan, string caption, string detail)
     {
         if (!Preview(caption, detail)) return;
+        if (smoke) { message.Text = "Preview mode: no installation changes are applied."; return; }
         try
         {
             busy = applying = true; Buttons(); message.Text = "Applying change…";

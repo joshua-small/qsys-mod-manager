@@ -35,11 +35,15 @@ internal static class Program
         using var uiMutex = new Mutex(false, @"Local\QsysModManager.UserInterface", out bool firstWindow);
         if (args.Length == 0 && !firstWindow) { MessageBox.Show("Q-SYS Mod Manager is already open.", AppIdentity.Name); return 0; }
         var app = new Application { ShutdownMode = ShutdownMode.OnMainWindowClose };
-        var window = new MainWindow(args.Length == 5 && args[0] == "--smoke" ? Path.Combine(Path.GetFullPath(args[2]), "user-data") : null);
-        if (args.Length == 5 && args[0] == "--smoke")
+        var window = new MainWindow(args.Length == 5 && args[0] is ("--smoke" or "--preview") ? Path.Combine(Path.GetFullPath(args[2]), "user-data") : null);
+        if (args.Length == 5 && args[0] is ("--smoke" or "--preview"))
         {
             window.SmokeSetup(args[3], args[4] == "-" ? null : Data.Read<CatalogDocument>(File.ReadAllBytes(args[4])));
             string output = Path.GetFullPath(args[2]); Directory.CreateDirectory(output);
+            if (args[0] == "--preview")
+            {
+                window.Title += " · isolated preview"; window.Loaded += (_, _) => window.SelectTarget(args[1]); app.Run(window); return 0;
+            }
             window.Left = -32000; window.Top = -32000; window.ShowActivated = false; window.ShowInTaskbar = false;
             window.Loaded += async (_, _) =>
             {
@@ -69,6 +73,9 @@ internal static class Program
                         File.WriteAllBytes(Path.Combine(output, "layout-scale-" + scale.ToString(System.Globalization.CultureInfo.InvariantCulture) + ".json"), Data.Bytes(window.SmokeLayoutChecks(false)));
                         Capture("manager-scale-" + scale.ToString(System.Globalization.CultureInfo.InvariantCulture) + ".png");
                     }
+                    window.SmokeScale(1); var restoreNames = window.SmokeLongNames();
+                    File.WriteAllBytes(Path.Combine(output, "layout-long-names.json"), Data.Bytes(window.SmokeLayoutChecks(false)));
+                    Capture("manager-long-names.png"); window.SmokeDetails(true); Capture("manager-long-details.png"); restoreNames();
                     File.WriteAllBytes(Path.Combine(output, "ui.json"), Data.Bytes(window.SmokeResult()));
                 }
                 catch (Exception error) { File.WriteAllText(Path.Combine(output, "error.txt"), error.ToString()); }

@@ -17,6 +17,14 @@ if (args.Length == 1 && args[0] == "--manager-online")
     Console.WriteLine($"Verified published manager {release.Version}: {archive.Length} bytes, {release.Sha256}"); return;
 }
 byte[] host = Encoding.UTF8.GetBytes("test host identity"), common = Encoding.UTF8.GetBytes("test common identity");
+if (args.Length == 3 && args[0] == "--seed-preview")
+{
+    string fixture = Path.GetFullPath(args[1]);
+    if (Directory.Exists(Path.Combine(fixture, ".qds-mod-manager"))) throw new IOException("Preview seeding requires a fresh, copied Designer fixture.");
+    var source = Directory.GetFiles(args[2], "*.qdsmod").Select(ModPackage.Open).ToArray();
+    var pins = source.GroupBy(p => p.Manifest.Id).Select(g => g.OrderBy(p => Version.Parse(p.Manifest.Version)).First()).Select(p => new InstalledMod(p.Manifest.Id, p.Manifest.Version, p.ArchiveHash, p.Manifest.Id == "schematic-tools"));
+    var engine = new Manager(fixture); engine.Apply(engine.PrepareProfile(ModProfile.Create("Native preview · pinned set", pins), source)); Console.WriteLine("Isolated native profile fixture prepared."); return;
+}
 if (args.Length == 2 && args[0] == "--online")
 {
     string directory = Path.GetFullPath(args[1]); if (Directory.Exists(directory)) throw new IOException("Use a new download test directory.");

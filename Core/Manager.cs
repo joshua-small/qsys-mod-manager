@@ -279,7 +279,8 @@ public sealed class Manager
         if (state != journal.BeforeState && state != journal.AfterState) throw new IOException("Manager state changed externally during recovery.");
         // Verify every backup before touching any destination.
         foreach (var hash in journal.Before.Values.Append(journal.BeforeState)) _ = Object(hash);
-        foreach (var (name, hash) in journal.Before) if (current[name] != hash) WriteTarget(name, Object(hash));
+        foreach (var (name, hash) in journal.Before) if (current[name] != hash) { Host(); WriteTarget(name, Object(hash)); }
+        Host();
         WriteAtomic(Local("state.json"), Object(journal.BeforeState));
         if (Stamp() != Stamp(journal.Before, journal.BeforeState)) throw new IOException("Recovery verification failed.");
     }

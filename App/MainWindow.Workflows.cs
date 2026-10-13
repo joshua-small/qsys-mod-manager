@@ -126,9 +126,9 @@ internal sealed partial class MainWindow
                 var old = before.Profile?.Mods.FirstOrDefault(m => m.Id == mod.Id); var next = profile.Mods.FirstOrDefault(m => m.Id == mod.Id);
                 string State(ProfileMod? pin) => pin is null ? "not managed" : pin.Version + (pin.Enabled ? " · enabled" : " · disabled");
                 return mod.Name + ": " + State(old) + " → " + State(next);
-            })) + "\n\nManaged mods: " + (plan.Group!.Suspended ? "off (profile choices retained)" : "on") + "\n" + plan.ChangedFiles.Length + " files change in one undoable operation. Unmanaged files remain.\nOther installations keep their applied configuration.";
+            })) + "\n\nManaged mods: " + (plan.Group!.Suspended ? "off (profile choices retained)" : "on") + "\n" + plan.ChangedFiles.Length + (plan.ChangedFiles.Length == 1 ? " file changes" : " files change") + " in one undoable operation. Unmanaged files remain.\nOther installations keep their applied configuration.";
             busy = false; network = null; Buttons();
-            await ExecutePlan(plan, action == "Profile" ? "Apply profile “" + profile.Name + "”" : action + " managed mods", detail);
+            await ExecutePlan(plan, action switch { "Profile" => "Apply profile “" + profile.Name + "”", "Updates" => "Update managed mods", "Suspend" => "Turn managed mods off", _ => "Turn managed mods on" }, detail);
         }
         catch (OperationCanceledException) { message.Text = "Canceled. The installation and active profile are unchanged."; }
         catch (Exception error) { RecordError(error); }
@@ -172,6 +172,7 @@ internal sealed partial class MainWindow
     private void Launch()
     {
         if (busy) return;
+        if (smoke) { message.Text = "Preview mode: Designer is not launched."; return; }
         try { var current = new Manager(target.Text).Inspect(packages); if (current.Pending is not null) throw new InvalidOperationException("Recover the interrupted operation before launching Designer."); Open(Path.Combine(current.Target, "Q-Sys Designer.exe")); }
         catch (Exception error) { RecordError(error); }
     }
