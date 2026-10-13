@@ -96,9 +96,11 @@ public sealed class GitHub : IDisposable
         if (content != record.Content || notes != record.ReleaseNotes || Data.Hash(image) != record.ThumbnailSha256)
             throw new InvalidDataException("Release record differs from its repository-owned content.");
     }
-    public async Task<ReleaseRecord[]> Collect(string cache)
+    public async Task<ReleaseRecord[]> Collect(string cache, SourcesDocument? existing = null)
     {
         var records = new List<ReleaseRecord>();
+        var approved = existing?.Releases ?? [];
+        var seen = new HashSet<SourceReceipt>();
         using var packages = new OnlineCatalog(Path.Combine(cache, "catalog"));
         foreach (var mod in Catalog.Mods)
         {
@@ -114,9 +116,24 @@ public sealed class GitHub : IDisposable
                     if (assets.Length != 1) throw new InvalidDataException("Duplicate release metadata assets.");
                     var tag = release.GetProperty("tag_name").GetString()!;
                     Contract.Identity(repository, tag, new string('0', 40));
+                    var prior = approved.SingleOrDefault(r => r.Id == mod.Id && r.Repository == repository && r.Tag == tag);
+                    // The signed baseline pins the previously verified descriptor. GitHub's asset
+                    // digest lets unchanged history skip repeat source/package downloads.
+                    if (prior is not null && assets[0].TryGetProperty("digest", out var digest) && digest.GetString() == "sha256:" + prior.RecordSha256)
+                    {
+                        seen.Add(prior); continue;
+                    }
                     var record = Contract.Validate(Data.Read<ReleaseRecord>(await Read(RecordUrl(repository, tag), Contract.RecordLimit)));
                     if (record.Repository != repository || record.Tag != tag || record.Content.Id != mod.Id)
                         throw new InvalidDataException("Release record identity differs from its approved source.");
+                    if (prior is not null)
+                    {
+                        if (record.Commit != prior.Commit || record.Release.Version != prior.Version || Data.Hash(Data.Bytes(record)) != prior.RecordSha256)
+                            throw new InvalidDataException("An approved release record changed: " + mod.Id + " " + prior.Version);
+                        // Older GitHub assets may not expose a digest. Verify their small descriptor;
+                        // unchanged immutable receipts do not need a full package download.
+                        seen.Add(prior); continue;
+                    }
                     await VerifySource(record);
                     var item = new CatalogItem(mod.Id, mod.Name, record.Content.Description, repository, [record.Release]);
                     var package = await packages.Download(item, record.Release, Path.Combine(cache, "packages"), default);
@@ -125,6 +142,7 @@ public sealed class GitHub : IDisposable
                 if (releases.GetArrayLength() < 100) break;
             }
         }
+        if (approved.Any(r => !seen.Contains(r))) throw new InvalidDataException("An approved release record is no longer available.");
         return records.ToArray();
     }
     public void Dispose() => client.Dispose();

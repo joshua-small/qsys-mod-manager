@@ -32,6 +32,8 @@ Schema-1 packages remain supported for exact historical restoration. Their legac
 
 The reusable workflow fetches the separate signed catalog, validates metadata without executing mod code, and uploads a descriptor without replacing an existing package or record. Both the reusable workflow reference and its tooling input are pinned to the same reviewed manager commit. Routine collection runs in the separate catalog repository and publishes automatically; initial mod/file-layout approval remains a maintainer review.
 
+The collector verifies its published baseline against the signed feed before using historical receipts. A matching [GitHub release-asset digest](https://docs.github.com/en/rest/releases/assets) avoids downloading an unchanged descriptor again. Where no digest is available, the descriptor is read and matched to its pinned receipt. Unchanged history does not redownload source files or packages; every new release receives full source, artwork and package verification. Changed or missing approved descriptors reject publication. QMM still verifies every package download against its pinned archive hash before installation.
+
 ## Migration and delivery
 
 The initial separate catalog retains the existing v0.15.0 Schematic Tools and v0.1.1 Automatic Geometry archive pins. Their bootstrap presentation predates author-owned records. Authors can publish explicit historical descriptors with a merged content commit, or publish their next version with content at its release tag. Do not rewrite historical packages.

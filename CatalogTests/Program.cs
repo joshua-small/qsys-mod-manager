@@ -82,6 +82,38 @@ handler.Get = _ => new(HttpStatusCode.OK) { Content = new ByteArrayContent(new b
 await RejectAsync(() => github.Read(Contract.ThumbnailUrl(record), 10), "Network response bound enforced");
 handler.Get = _ => throw new HttpRequestException("offline");
 await RejectAsync(() => github.VerifySource(record), "Offline publishing fails without altering catalog");
+var receipt = merged.Sources.Releases.Single();
+object[] Listing(string? digest) => [new { draft = false, prerelease = false, tag_name = tag, assets = new[] { new { name = Contract.AssetName, digest } } }];
+HttpResponseMessage Response(byte[] bytes) => new(HttpStatusCode.OK) { Content = new ByteArrayContent(bytes) };
+int dataRequests = 0;
+handler.Get = uri =>
+{
+    if (uri.Host == "api.github.com") return Response(Data.Bytes(uri.AbsolutePath.Contains(repository) ? Listing("sha256:" + receipt.RecordSha256) : Array.Empty<object>()));
+    dataRequests++; throw new Exception("Unchanged history should not download payloads.");
+};
+Check((await github.Collect(Path.Combine(fixture, "repeat-cache"), merged.Sources)).Length == 0 && dataRequests == 0, "Matching GitHub descriptor digest reuses signed history without asset downloads");
+handler.Get = uri =>
+{
+    if (uri.Host == "api.github.com") return Response(Data.Bytes(uri.AbsolutePath.Contains(repository) ? Listing(null) : Array.Empty<object>()));
+    dataRequests++; return Response(Data.Bytes(record));
+};
+Check((await github.Collect(Path.Combine(fixture, "legacy-digest-cache"), merged.Sources)).Length == 0 && dataRequests == 1, "Assets without a digest verify the descriptor without redownloading the package");
+handler.Get = uri => uri.Host == "api.github.com"
+    ? Response(Data.Bytes(uri.AbsolutePath.Contains(repository) ? Listing(null) : Array.Empty<object>()))
+    : Response(Data.Bytes(record with { ReleaseNotes = "Replaced after approval" }));
+await RejectAsync(() => github.Collect(Path.Combine(fixture, "changed-history"), merged.Sources), "Changed historical descriptor blocks publication");
+handler.Get = _ => Response(Data.Bytes(Array.Empty<object>()));
+await RejectAsync(() => github.Collect(Path.Combine(fixture, "missing-history"), merged.Sources), "Missing approved descriptor blocks publication without erasing pins");
+handler.Get = uri =>
+{
+    if (uri.Host == "api.github.com") return Response(Data.Bytes(uri.AbsolutePath.Contains(repository) ? Listing(null) : Array.Empty<object>()));
+    if (uri.AbsolutePath.EndsWith(Contract.AssetName)) return Response(Data.Bytes(record));
+    if (uri.AbsolutePath.EndsWith(".qdsmod")) return Response(File.ReadAllBytes(package.Path));
+    if (uri.AbsolutePath.EndsWith("mod.json")) return Response(Data.Bytes(content));
+    if (uri.AbsolutePath.EndsWith(".md")) return Response(Encoding.UTF8.GetBytes(record.ReleaseNotes));
+    return Response(icon);
+};
+Check((await github.Collect(Path.Combine(fixture, "new-release"), new(1, []))).Single() == record, "A new release still verifies source, artwork and the full package");
 File.WriteAllBytes(Path.Combine(fixture, "results.json"), Data.Bytes(checks));
 Console.WriteLine(checks.Count + " catalog publishing checks passed.");
 

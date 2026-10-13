@@ -98,13 +98,10 @@ try
         var presentation = Data.Read<PresentationDocument>(Contract.Read(Path.Combine(directory, "presentation.json"), CatalogTrust.Limit));
         var path = Path.Combine(directory, "sources.json");
         var sources = File.Exists(path) ? Data.Read<SourcesDocument>(Contract.Read(path, CatalogTrust.Limit)) : new(1, []);
-        using var github = new GitHub(); var records = await github.Collect(args[2]);
+        using var github = new GitHub(); var records = await github.Collect(args[2], sources);
         var result = Generator.Merge(index, presentation, sources, records);
-        // An approved record disappearing must not silently erase or unverify its pin.
-        if (sources.Releases.Any(s => !records.Any(r => r.Content.Id == s.Id && r.Release.Version == s.Version)))
-            throw new InvalidDataException("An approved release record is no longer available.");
         Generator.Write(directory, result);
-        Console.WriteLine(records.Length + " release records verified; historical pins retained."); return;
+        Console.WriteLine(records.Length + " new release records fully verified; " + sources.Releases.Length + " immutable receipts retained."); return;
     }
     throw new ArgumentException("Usage: source <repo> <source-dir> | publish <repo> <tag> <commit> <source-dir> <package> <asset-name> <output> | release <repo> <tag> <commit> <source-dir> <output-dir> | sync <catalog-dir> <cache-dir> | check <catalog-dir> <cache-dir> <baseline-catalog-dir>");
 }
