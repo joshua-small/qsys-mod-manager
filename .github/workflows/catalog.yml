@@ -69,17 +69,24 @@ jobs:
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           # Use a lease so another writer's work cannot be silently discarded.
           expected=$(git ls-remote origin "refs/heads/$branch" | cut -f1)
+          changed=true
           if [ -n "$expected" ]; then
             git fetch origin "$branch"
             if [ "$(git show -s --format=%ae FETCH_HEAD)" != '41898282+github-actions[bot]@users.noreply.github.com' ]; then
               echo 'Proposal branch contains a human commit; preserve it and resolve manually.' >&2
               exit 1
             fi
+            changed=false
+            for file in catalog/index.json catalog/presentation.json catalog/sources.json; do
+              if ! git show "FETCH_HEAD:$file" | cmp - "$file"; then changed=true; fi
+            done
           fi
-          git switch -c "$branch"
-          git add catalog/index.json catalog/presentation.json catalog/sources.json
-          git commit -m 'Update catalog from verified mod release records'
-          git push --force-with-lease="refs/heads/$branch:$expected" origin "HEAD:refs/heads/$branch"
+          if [ "$changed" = true ]; then
+            git switch -c "$branch"
+            git add catalog/index.json catalog/presentation.json catalog/sources.json
+            git commit -m 'Update catalog from verified mod release records'
+            git push --force-with-lease="refs/heads/$branch:$expected" origin "HEAD:refs/heads/$branch"
+          fi
           if ! gh pr list --head "$branch" --state open --json number --jq '.[].number' | grep -q .; then
             gh pr create --base main --head "$branch" --title 'Update approved mod catalog' --body-file docs/CATALOG-PR.md
           fi
