@@ -14,7 +14,7 @@ internal sealed record ModRow(string Id, string Name, string Installed, string A
 {
     public override string ToString() => Name + ", " + Status + "; installed " + Installed + ", available " + Available;
     public string Summary => Remote?.Description ?? Catalog.Mod(Id).Description;
-    public string VersionSummary => "Installed " + Installed + "  →  Available " + Available + " · " + (Status == "Not compatible" ? "Unsupported build" : "Designer 10.5");
+    public string VersionSummary => Status + " · " + (Installed == "—" ? "Available " + Available : Installed == Available ? "Version " + Installed : Installed + " → " + Available);
     public string ActionName => "Actions for " + Name;
     public ImageSource? Thumbnail { get; init; }
     public string PrimaryLabel => Local?.Managed is true ? (Local.Enabled ? "Disable " : "Enable ") + Name : Local?.Status == "Installed · not managed yet" ? "Manage existing " + Name : "Install " + Name;
@@ -33,7 +33,7 @@ internal sealed partial class MainWindow : Window
     private readonly ComboBox theme = new() { Width = 170, DisplayMemberPath = "Name" };
     private readonly ComboBox scope = new() { Width = 144, Height = 36, Margin = new Thickness(0, 0, 8, 0) };
     private readonly TextBox search = new() { MinWidth = 160, Height = 36, Tag = "Search mods…", ToolTip = "Search mod names and descriptions" };
-    private readonly DataGrid mods = new() { AutoGenerateColumns = false, IsReadOnly = true, CanUserAddRows = false, HeadersVisibility = DataGridHeadersVisibility.Column, SelectionMode = DataGridSelectionMode.Single, SelectionUnit = DataGridSelectionUnit.FullRow, RowHeight = 102, GridLinesVisibility = DataGridGridLinesVisibility.Horizontal };
+    private readonly DataGrid mods = new() { AutoGenerateColumns = false, IsReadOnly = true, CanUserAddRows = false, HeadersVisibility = DataGridHeadersVisibility.Column, SelectionMode = DataGridSelectionMode.Single, SelectionUnit = DataGridSelectionUnit.FullRow, RowHeight = 88, GridLinesVisibility = DataGridGridLinesVisibility.Horizontal };
     private readonly ComboBox versions = new() { Margin = new Thickness(0, 8, 0, 16), DisplayMemberPath = "Label" };
     private readonly TextBlock heading = new() { FontSize = 24, FontWeight = FontWeights.SemiBold };
     private readonly TextBlock description = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 16), LineHeight = 22 };
@@ -66,7 +66,7 @@ internal sealed partial class MainWindow : Window
     {
         userData = dataDirectory ?? AppIdentity.UserData;
         Title = AppIdentity.Name + " · " + AppUpdate.CurrentVersion; Width = 1280; Height = 740; MinWidth = 680; MinHeight = 360;
-        Icon = System.Windows.Media.Imaging.BitmapFrame.Create(new Uri("pack://application:,,,/Assets/qmm.ico"));
+        Icon = System.Windows.Media.Imaging.BitmapDecoder.Create(new Uri("pack://application:,,,/Assets/qmm.ico"), System.Windows.Media.Imaging.BitmapCreateOptions.None, System.Windows.Media.Imaging.BitmapCacheOption.OnLoad).Frames.OrderByDescending(frame => frame.PixelWidth).First();
         themes = new Themes(this, Path.Combine(userData, "settings.json")); online = new OnlineCatalog(userData);
         SetResourceReference(BackgroundProperty, "Page"); SetResourceReference(ForegroundProperty, "Text"); FontFamily = new System.Windows.Media.FontFamily("Segoe UI"); FontSize = 14;
         BuildLayout();
@@ -114,8 +114,8 @@ internal sealed partial class MainWindow : Window
         try
         {
             LoadLibrary(); var engine = new Manager(target.Text); packages.AddRange(engine.CachedPackages().Where(p => !packages.Any(x => x.ArchiveHash == p.ArchiveHash))); inspection = engine.Inspect(packages); RefreshProfiles(); hostHash = Catalog.HostHash; commonHash = Catalog.CommonHash;
-            compatibility.Text = "Q-SYS Designer 10.5 · " + (inspection.Running ? "Designer is running" : "Ready to manage mods"); compatibility.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
-            message.Text = inspection.Pending is not null ? "An interrupted change needs recovery before you can continue." : "Choose a mod to see its available versions.";
+            compatibility.Text = inspection.Pending is not null ? "Recovery required" : inspection.Running ? "Designer is running" : "Ready to manage mods"; compatibility.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
+            message.Text = inspection.Pending is not null ? "An interrupted change needs recovery before you can continue." : "";
             if (libraryErrors.Length > 0) message.Text += "\nSome local packages could not be read: " + libraryErrors;
         }
         catch (Exception error) { inspection = null; compatibility.Text = error.GetBaseException().Message; compatibility.SetResourceReference(TextBlock.ForegroundProperty, "Bad"); message.Text = "Choose a supported Designer installation. Use the All filter to browse mods."; }
@@ -132,7 +132,7 @@ internal sealed partial class MainWindow : Window
             string available = release?.Version ?? packages.Where(p => p.Manifest.Id == mod.Id).OrderByDescending(p => Version.Parse(p.Manifest.Version)).FirstOrDefault()?.Manifest.Version ?? "—";
             string status = local?.Status ?? "Not compatible";
             if (local?.Managed is true && status != "Files changed outside manager" && release is not null && Version.Parse(release.Version) > Version.Parse(local.Version)) status = "Update available";
-            return new ModRow(mod.Id, mod.Name, local?.Version ?? "—", available, status, local, remote) { Thumbnail = thumbnails.GetValueOrDefault(mod.Id), CanManage = inspection is not null && inspection.Pending is null && !inspection.Suspended };
+            return new ModRow(mod.Id, mod.Name, local?.Version ?? "—", available, status, local, remote) { Thumbnail = thumbnails.GetValueOrDefault(mod.Id) ?? Icon, CanManage = inspection is not null && inspection.Pending is null && !inspection.Suspended };
         }).Where(row => (scope.SelectedIndex switch { 1 => inspection is not null && (row.Remote is null || row.Remote.Releases.Any(IsCompatible) || packages.Any(p => p.Manifest.Id == row.Id)), 2 => row.Local?.Managed is true || row.Local?.Enabled is true, 3 => row.Local?.Managed is true && row.Local.Enabled, 4 => row.Local?.Managed is true && row.Local.Enabled is false, 5 => row.Status == "Update available", _ => true })
             && OnlineCatalog.Matches(row.Remote ?? new(row.Id, row.Name, Catalog.Mod(row.Id).Description, OnlineCatalog.Repository(row.Id), Array.Empty<CatalogRelease>()), search.Text)).OrderBy(r => r.Name, StringComparer.OrdinalIgnoreCase).ToArray();
         mods.ItemsSource = rows; mods.SelectedItem = rows.FirstOrDefault(m => m.Id == selected); ShowMod();
@@ -168,8 +168,11 @@ internal sealed partial class MainWindow : Window
         install.Content = alreadyInstalled ? "Installed" : choice?.Package is null ? "Download & install" : row?.Local?.Managed is true ? "Install version" : "Install";
         SetButtonIcon(install, alreadyInstalled ? "Checkmark" : "ArrowDownload");
         install.IsEnabled = ready && supported && !alreadyInstalled;
+        install.Visibility = alreadyInstalled ? Visibility.Collapsed : Visibility.Visible;
         adopt.IsEnabled = ready && row?.Local?.Managed is false && row.Local.Status == "Installed · not managed yet" && choice?.Package is not null;
+        adopt.Visibility = row?.Local?.Managed is false && row.Local.Status == "Installed · not managed yet" ? Visibility.Visible : Visibility.Collapsed;
         toggle.IsEnabled = remove.IsEnabled = ready && row?.Local?.Managed is true; toggle.Content = row?.Local?.Enabled is true ? "Disable" : "Enable";
+        toggle.Visibility = remove.Visibility = row?.Local?.Managed is true ? Visibility.Visible : Visibility.Collapsed;
         SetButtonIcon(toggle, row?.Local?.Enabled is true ? "Prohibited" : "CheckmarkCircle");
         undo.Content = inspection?.Pending is not null ? "Recover interrupted change" : "Undo last change"; undo.IsEnabled = !busy && inspection is not null && (inspection.Pending is not null || inspection.CanUndo);
         target.IsEnabled = mods.IsEnabled = versions.IsEnabled = scope.IsEnabled = search.IsEnabled = refreshCatalog.IsEnabled = !busy;
@@ -191,7 +194,7 @@ internal sealed partial class MainWindow : Window
     private static void Explain(Button button, string help) { button.ToolTip = help; System.Windows.Automation.AutomationProperties.SetHelpText(button, help); }
     private async Task FetchCatalog()
     {
-        if (busy) return; busy = true; using var cancellation = new CancellationTokenSource(); network = cancellation; Buttons(); catalogStatus.Text = "Checking available mods…";
+        if (busy) return; busy = true; using var cancellation = new CancellationTokenSource(); network = cancellation; catalogStatus.Text = "Checking available mods…"; Buttons();
         try { snapshot = await online.Fetch(cancellation.Token); presentation = await online.FetchPresentation(cancellation.Token) ?? PresentationDocument.Bundled(); await LoadThumbnails(cancellation.Token); catalogStatus.Text = snapshot.Offline ? "Offline · saved catalog from " + snapshot.FetchedUtc.ToLocalTime().ToString("g") : "Catalog up to date · " + snapshot.Document.Mods.Length + " mods"; }
         catch (OperationCanceledException) { catalogStatus.Text = "Catalog refresh canceled."; }
         catch (Exception error) { catalogStatus.Text = "Catalog unavailable. Local packages still work. " + error.GetBaseException().Message; }

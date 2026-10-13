@@ -52,10 +52,11 @@ internal static class Program
                     window.SelectTarget(args[1]); await Task.Delay(350); window.UpdateLayout();
                     if (args[4] == "-") await window.SmokeFetch();
                     File.WriteAllBytes(Path.Combine(output, "checks.json"), Data.Bytes(window.SmokeChecks()));
-                    void Capture(string name)
+                    void Capture(string name, bool contentOnly = false)
                     {
                         window.UpdateLayout();
-                        var bitmap = new RenderTargetBitmap((int)window.ActualWidth, (int)window.ActualHeight, 96, 96, PixelFormats.Pbgra32); bitmap.Render(window);
+                        var visual = contentOnly ? (FrameworkElement)window.Content : window;
+                        var bitmap = new RenderTargetBitmap((int)visual.ActualWidth, (int)visual.ActualHeight, 96, 96, PixelFormats.Pbgra32); bitmap.Render(visual);
                         var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(bitmap));
                         using var stream = File.Create(Path.Combine(output, name)); encoder.Save(stream);
                     }
@@ -76,6 +77,10 @@ internal static class Program
                     window.SmokeScale(1); var restoreNames = window.SmokeLongNames();
                     File.WriteAllBytes(Path.Combine(output, "layout-long-names.json"), Data.Bytes(window.SmokeLayoutChecks(false)));
                     Capture("manager-long-names.png"); window.SmokeDetails(true); Capture("manager-long-details.png"); restoreNames();
+                    window.Width = 1280; window.Height = 1392; await Task.Delay(100); window.UpdateLayout();
+                    // Match the supplied 1280x1392 screenshot's 1280x1360 client area.
+                    var content = (FrameworkElement)window.Content; window.Width += 1280 - content.ActualWidth; window.Height += 1360 - content.ActualHeight; await Task.Delay(100); window.UpdateLayout();
+                    Capture("manager-reference-size.png", true); window.SmokeSelectMod("schematic-tools"); Capture("manager-reference-details.png", true); window.SmokeDetails(false);
                     File.WriteAllBytes(Path.Combine(output, "ui.json"), Data.Bytes(window.SmokeResult()));
                 }
                 catch (Exception error) { File.WriteAllText(Path.Combine(output, "error.txt"), error.ToString()); }
