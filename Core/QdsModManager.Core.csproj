@@ -2,4 +2,5 @@
   <PropertyGroup><TargetFramework>net10.0</TargetFramework><Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings></PropertyGroup>
   <ItemGroup><InternalsVisibleTo Include="QdsModManager.Tests" /></ItemGroup>
   <ItemGroup><EmbeddedResource Include="../catalog/presentation.json" LogicalName="QdsModManager.Presentation.json" /></ItemGroup>
+  <ItemGroup><EmbeddedResource Include="../catalog/index.json" LogicalName="QdsModManager.Catalog.json" /></ItemGroup>
 </Project>

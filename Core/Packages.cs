@@ -8,7 +8,11 @@ using System.Text.Json.Serialization;
 
 namespace QdsModManager;
 
-public sealed record ModDefinition(string Id, string Name, string Module, string Marker, string Description);
+public sealed record ModDefinition(string Id, string Name, string Module, string Marker)
+{
+    // The name remains an approved package identity. Display copy is generated from mod repositories.
+    public string Description => Catalog.Bundled.Mods.Single(m => m.Id == Id).Description;
+}
 public static class Catalog
 {
     public const string HostHash = "0e7150f8dc02e0159e019188780fb003ce025f5ec18c491609cf337d849bda60";
@@ -18,11 +22,16 @@ public static class Catalog
     public const string Harmony = "0Harmony.dll", License = "AutomaticGeometry.Harmony.LICENSE.txt";
     public static readonly ModDefinition[] Mods =
     {
-        new("schematic-tools", "Schematic Tools", "Designer.Modules.SelectionProbe.dll", ".schematic-tools-enabled",
-            "Packing and shortcuts, named-signal colors, aligned color palette, icon search, editor shortcuts, and snapshot tools."),
-        new("automatic-geometry", "Automatic Geometry", "Designer.Modules.AutomaticGeometry.dll", ".automatic-geometry-enabled",
-            "Automatic component widths for control-pin labels, plus 10-unit Container and Channel Group connectors with centered labels and pins.")
+        new("schematic-tools", "Schematic Tools", "Designer.Modules.SelectionProbe.dll", ".schematic-tools-enabled"),
+        new("automatic-geometry", "Automatic Geometry", "Designer.Modules.AutomaticGeometry.dll", ".automatic-geometry-enabled")
     };
+    private static readonly Lazy<CatalogDocument> bundled = new(() =>
+    {
+        using var stream = typeof(Catalog).Assembly.GetManifestResourceStream("QdsModManager.Catalog.json")!;
+        using var memory = new MemoryStream(); stream.CopyTo(memory);
+        return OnlineCatalog.Validate(Data.Read<CatalogDocument>(memory.ToArray()));
+    });
+    public static CatalogDocument Bundled => bundled.Value;
     public static ModDefinition Mod(string id) => Mods.SingleOrDefault(m => m.Id == id) ?? throw new InvalidDataException("This package is not one of the supported mod bundles.");
     public static string[] FileNames => Mods.SelectMany(m => new[] { m.Module, m.Marker }).Concat(new[] { Harmony, License }).ToArray();
     public static void FileName(string name) { if (!FileNames.Contains(name, StringComparer.Ordinal)) throw new InvalidDataException("Unsupported package file: " + name); }

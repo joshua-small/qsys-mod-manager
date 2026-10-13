@@ -1,0 +1,81 @@
+name: Publish mod catalog record
+on:
+  workflow_call:
+    inputs:
+      tool_revision:
+        type: string
+        required: true
+      tag:
+        type: string
+        default: ''
+      content_ref:
+        type: string
+        default: ''
+      publish:
+        type: boolean
+        default: false
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          repository: joshua-small/qsys-mod-manager
+          ref: ${{ inputs.tool_revision }}
+          path: tooling
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          path: source
+          ref: ${{ inputs.content_ref || inputs.tag || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: tooling/global.json
+      - name: Validate repository-owned content
+        env:
+          MOD_REPOSITORY: ${{ github.repository }}
+        run: dotnet run --project tooling/CatalogTool/QdsModManager.CatalogTool.csproj -- source "$MOD_REPOSITORY" source
+  publish:
+    needs: validate
+    if: inputs.publish && (github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: mod-catalog-${{ github.repository }}-${{ inputs.tag }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          repository: joshua-small/qsys-mod-manager
+          ref: ${{ inputs.tool_revision }}
+          path: tooling
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          path: source
+          ref: ${{ inputs.content_ref || inputs.tag }}
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: tooling/global.json
+      - name: Generate and verify immutable release record
+        env:
+          MOD_REPOSITORY: ${{ github.repository }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          content_commit=$(git -C source rev-parse HEAD)
+          dotnet run --project tooling/CatalogTool/QdsModManager.CatalogTool.csproj -- release "$MOD_REPOSITORY" "$RELEASE_TAG" "$content_commit" source output
+          # Never replace an existing descriptor or package. The generator verified byte-equivalent content above.
+          if ! gh release view "$RELEASE_TAG" --repo "$MOD_REPOSITORY" --json assets --jq '.assets[].name' | grep -Fxq qmm-catalog.json; then
+            gh release upload "$RELEASE_TAG" output/qmm-catalog.json --repo "$MOD_REPOSITORY"
+          fi
+      - uses: actions/upload-artifact@v7
+        with:
+          name: verified-catalog-record
+          path: output/qmm-catalog.json
+          if-no-files-found: error

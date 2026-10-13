@@ -20,7 +20,8 @@ internal sealed partial class MainWindow
             {
                 var bytes = await online.Thumbnail(mod, cancellation); if (bytes is null) continue;
                 using var stream = new MemoryStream(bytes); var decoder = System.Windows.Media.Imaging.BitmapDecoder.Create(stream, System.Windows.Media.Imaging.BitmapCreateOptions.None, System.Windows.Media.Imaging.BitmapCacheOption.OnLoad);
-                var frame = decoder.Frames[0]; if (frame.PixelWidth > 2048 || frame.PixelHeight > 2048) continue; frame.Freeze(); thumbnails[mod.Id] = frame;
+                var frame = decoder.Frames.Where(f => f.PixelWidth <= 2048 && f.PixelHeight <= 2048).OrderByDescending(f => f.PixelWidth * f.PixelHeight).FirstOrDefault();
+                if (frame is null) continue; frame.Freeze(); thumbnails[mod.Id] = frame;
             }
             catch (OperationCanceledException) { throw; }
             catch (Exception error) { errors.Add("Thumbnail: " + error.GetBaseException().Message); }

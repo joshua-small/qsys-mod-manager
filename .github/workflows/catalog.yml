@@ -1,0 +1,94 @@
+name: Catalog
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '23 * * * *'
+  pull_request:
+    paths: ['CatalogTool/**', 'CatalogTests/**', 'Core/**', 'catalog/**', '.github/workflows/catalog.yml', '.github/workflows/publish-mod-catalog.yml']
+  push:
+    branches: [main]
+    paths: ['CatalogTool/**', 'CatalogTests/**', 'Core/**', 'catalog/**', '.github/workflows/catalog.yml', '.github/workflows/publish-mod-catalog.yml']
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+      - name: Verify existing published packages and catalog contracts
+        run: |
+          dotnet run --project Tests/QdsModManager.Tests.csproj -- --online artifacts/downloads
+          dotnet run --project CatalogTests/QdsModManager.CatalogTests.csproj -- artifacts/downloads/packages artifacts/publishing-tests
+      - name: Verify generated files against approved release sources
+        if: github.event_name == 'pull_request' || github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE_REVISION: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          mkdir -p artifacts/baseline
+          for file in index.json presentation.json; do
+            git show "$BASE_REVISION:catalog/$file" > "artifacts/baseline/$file"
+          done
+          if git cat-file -e "$BASE_REVISION:catalog/sources.json"; then
+            git show "$BASE_REVISION:catalog/sources.json" > artifacts/baseline/sources.json
+          fi
+          dotnet run --project CatalogTool/QdsModManager.CatalogTool.csproj -- check catalog artifacts/catalog-cache artifacts/baseline
+  collect:
+    needs: verify
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    concurrency:
+      group: approved-catalog-proposal
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+      - name: Collect verified records
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: dotnet run --project CatalogTool/QdsModManager.CatalogTool.csproj -- sync catalog artifacts/catalog-cache
+      - name: Propose an update without publishing to main
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if git diff --quiet -- catalog/index.json catalog/presentation.json catalog/sources.json; then exit 0; fi
+          branch=codex/generated-mod-catalog
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          # Use a lease so another writer's work cannot be silently discarded.
+          expected=$(git ls-remote origin "refs/heads/$branch" | cut -f1)
+          if [ -n "$expected" ]; then
+            git fetch origin "$branch"
+            if [ "$(git show -s --format=%ae FETCH_HEAD)" != '41898282+github-actions[bot]@users.noreply.github.com' ]; then
+              echo 'Proposal branch contains a human commit; preserve it and resolve manually.' >&2
+              exit 1
+            fi
+          fi
+          git switch -c "$branch"
+          git add catalog/index.json catalog/presentation.json catalog/sources.json
+          git commit -m 'Update catalog from verified mod release records'
+          git push --force-with-lease="refs/heads/$branch:$expected" origin "HEAD:refs/heads/$branch"
+          if ! gh pr list --head "$branch" --state open --json number --jq '.[].number' | grep -q .; then
+            gh pr create --base main --head "$branch" --title 'Update approved mod catalog' --body-file docs/CATALOG-PR.md
+          fi
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: generated-catalog
+          path: |
+            catalog/index.json
+            catalog/presentation.json
+            catalog/sources.json
+          if-no-files-found: error

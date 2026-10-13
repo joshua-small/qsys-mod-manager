@@ -176,7 +176,8 @@ internal sealed partial class MainWindow : Window
         SetButtonIcon(toggle, row?.Local?.Enabled is true ? "Prohibited" : "CheckmarkCircle");
         undo.Content = inspection?.Pending is not null ? "Recover interrupted change" : "Undo last change"; undo.IsEnabled = !busy && inspection is not null && (inspection.Pending is not null || inspection.CanUndo);
         target.IsEnabled = mods.IsEnabled = versions.IsEnabled = scope.IsEnabled = search.IsEnabled = refreshCatalog.IsEnabled = !busy;
-        repositoryLink.IsEnabled = row is not null; repositoryLink.NavigateUri = row is null ? null : new Uri("https://github.com/" + OnlineCatalog.Repository(row.Id));
+        repositoryLink.IsEnabled = row is not null; repositoryLink.NavigateUri = row is null ? null :
+            new Uri(presentation?.Mods.FirstOrDefault(m => m.Id == row.Id)?.HelpUrl ?? "https://github.com/" + OnlineCatalog.Repository(row.Id));
         repositoryLink.ToolTip = row is null ? "Select a mod to view its repository." : "Open " + row.Name + " on GitHub in your browser.";
         System.Windows.Automation.AutomationProperties.SetName(repositoryLink, row is null ? "View on GitHub" : "View " + row.Name + " on GitHub");
         RefreshSidebar();
