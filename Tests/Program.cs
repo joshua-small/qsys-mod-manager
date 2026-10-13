@@ -45,6 +45,11 @@ if (args.Length == 3 && args[0] == "--crash")
     var engine = Engine(args[1]); engine.AfterWrite = _ => Environment.Exit(71);
     engine.Apply(engine.Prepare("Install", "schematic-tools", args[2])); return;
 }
+if (args.Length == 4 && args[0] == "--group-crash")
+{
+    var engine = Engine(args[1]); var plan = Data.Read<OperationPlan>(File.ReadAllBytes(args[2]));
+    engine.AfterWrite = n => { if (n == int.Parse(args[3])) Environment.Exit(72); }; engine.Apply(plan); return;
+}
 if (args.Length != 3) throw new ArgumentException("Usage: tests <package-directory> <new-output-directory> <unit|lab-installation-path>");
 string output = Path.GetFullPath(args[1]); if (Directory.Exists(output)) throw new IOException("Use a fresh output directory."); Directory.CreateDirectory(output);
 var packages = Directory.GetFiles(args[0], "*.qdsmod").Select(ModPackage.Open).ToArray();
@@ -154,5 +159,6 @@ BadPackage("unsupported-file-rejected", zip =>
     using var target = zip.CreateEntry("manifest.json").Open(); target.Write(Data.Bytes(manifest));
 });
 await CatalogChecks.Run(latest, output, checks);
+ProfileChecks.Run(output, old, latest, geometry, host, common, checks);
 File.WriteAllBytes(Path.Combine(output, "result.json"), Data.Bytes(new { status = "complete", checks }));
 Console.WriteLine($"{checks.Count} package, transaction and recovery checks passed.");
