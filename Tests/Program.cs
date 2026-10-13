@@ -17,6 +17,14 @@ if (args.Length == 1 && args[0] == "--manager-online")
     Console.WriteLine($"Verified published manager {release.Version}: {archive.Length} bytes, {release.Sha256}"); return;
 }
 byte[] host = Encoding.UTF8.GetBytes("test host identity"), common = Encoding.UTF8.GetBytes("test common identity");
+if (args.Length == 3 && args[0] == "--seed-preview")
+{
+    string fixture = Path.GetFullPath(args[1]);
+    if (Directory.Exists(Path.Combine(fixture, ".qds-mod-manager"))) throw new IOException("Preview seeding requires a fresh, copied Designer fixture.");
+    var source = Directory.GetFiles(args[2], "*.qdsmod").Select(ModPackage.Open).ToArray();
+    var pins = source.GroupBy(p => p.Manifest.Id).Select(g => g.OrderBy(p => Version.Parse(p.Manifest.Version)).First()).Select(p => new InstalledMod(p.Manifest.Id, p.Manifest.Version, p.ArchiveHash, p.Manifest.Id == "schematic-tools"));
+    var engine = new Manager(fixture); engine.Apply(engine.PrepareProfile(ModProfile.Create("Native preview · pinned set", pins), source)); Console.WriteLine("Isolated native profile fixture prepared."); return;
+}
 if (args.Length == 2 && args[0] == "--online")
 {
     string directory = Path.GetFullPath(args[1]); if (Directory.Exists(directory)) throw new IOException("Use a new download test directory.");
@@ -45,12 +53,17 @@ if (args.Length == 3 && args[0] == "--crash")
     var engine = Engine(args[1]); engine.AfterWrite = _ => Environment.Exit(71);
     engine.Apply(engine.Prepare("Install", "schematic-tools", args[2])); return;
 }
+if (args.Length == 4 && args[0] == "--group-crash")
+{
+    var engine = Engine(args[1]); var plan = Data.Read<OperationPlan>(File.ReadAllBytes(args[2]));
+    engine.AfterWrite = n => { if (n == int.Parse(args[3])) Environment.Exit(72); }; engine.Apply(plan); return;
+}
 if (args.Length != 3) throw new ArgumentException("Usage: tests <package-directory> <new-output-directory> <unit|lab-installation-path>");
 string output = Path.GetFullPath(args[1]); if (Directory.Exists(output)) throw new IOException("Use a fresh output directory."); Directory.CreateDirectory(output);
 var packages = Directory.GetFiles(args[0], "*.qdsmod").Select(ModPackage.Open).ToArray();
 var schematic = packages.Where(p => p.Manifest.Id == "schematic-tools").OrderBy(p => Version.Parse(p.Manifest.Version)).ToArray();
-if (schematic.Length < 2) throw new Exception("Tests require two real Schematic Tools versions.");
-var old = schematic.First(); var latest = schematic.Last(); var geometry = packages.Single(p => p.Manifest.Id == "automatic-geometry");
+if (schematic.Length < 2) throw new Exception("Tests require two distinct valid Schematic Tools package versions (the CI older version is a synthetic fixture).");
+var old = schematic.First(); var latest = schematic.Last(); var geometry = packages.Where(p => p.Manifest.Id == "automatic-geometry").OrderBy(p => Version.Parse(p.Manifest.Version)).Last();
 var checks = new List<string>();
 void Check(bool value, string label) { if (!value) throw new Exception(label); checks.Add(label); }
 void Reject(Action action, string label) { try { action(); } catch (Exception) { checks.Add(label); return; } throw new Exception("Accepted: " + label); }
@@ -154,5 +167,6 @@ BadPackage("unsupported-file-rejected", zip =>
     using var target = zip.CreateEntry("manifest.json").Open(); target.Write(Data.Bytes(manifest));
 });
 await CatalogChecks.Run(latest, output, checks);
+ProfileChecks.Run(output, old, latest, geometry, host, common, checks);
 File.WriteAllBytes(Path.Combine(output, "result.json"), Data.Bytes(new { status = "complete", checks }));
 Console.WriteLine($"{checks.Count} package, transaction and recovery checks passed.");

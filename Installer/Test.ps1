@@ -65,7 +65,7 @@ try {
     Check (Test-Path -LiteralPath $desktop) 'Optional desktop shortcut created'
     $shell = New-Object -ComObject WScript.Shell
     Check ($shell.CreateShortcut($shortcut).TargetPath -eq (Join-Path $target 'Q-SYS Mod Manager.exe')) 'Start shortcut targets the installed app'
-    $preserve = @('Packages\keep.qdsmod','.manager-updates\keep.txt','settings.json','owner-notes.txt')
+    $preserve = @('Packages\keep.qdsmod','.manager-updates\keep.txt','settings.json','profiles.json','owner-notes.txt')
     foreach ($file in $preserve) {
         $path = Join-Path $target $file
         New-Item -ItemType Directory -Path (Split-Path $path -Parent) -Force | Out-Null

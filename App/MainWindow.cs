@@ -10,18 +10,30 @@ using Microsoft.Win32;
 
 namespace QdsModManager.App;
 
-internal sealed record ModRow(string Id, string Name, string Installed, string Available, string Status, ModStatus? Local, CatalogItem? Remote);
+internal sealed record ModRow(string Id, string Name, string Installed, string Available, string Status, ModStatus? Local, CatalogItem? Remote)
+{
+    public override string ToString() => Name + ", " + Status + "; installed " + Installed + ", available " + Available;
+    public string Summary => Remote?.Description ?? Catalog.Mod(Id).Description;
+    public string VersionSummary => "Installed " + Installed + "  →  Available " + Available + " · " + (Status == "Not compatible" ? "Unsupported build" : "Designer 10.5");
+    public string ActionName => "Actions for " + Name;
+    public ImageSource? Thumbnail { get; init; }
+    public string PrimaryLabel => Local?.Managed is true ? (Local.Enabled ? "Disable " : "Enable ") + Name : Local?.Status == "Installed · not managed yet" ? "Manage existing " + Name : "Install " + Name;
+    public string RemoveLabel => "Remove " + Name;
+    public bool CanManage { get; init; }
+    public bool PrimaryEnabled => CanManage && Available != "—" && Local?.Status is not ("Unrecognized installed files" or "Files changed outside manager") && Status != "Not compatible";
+    public bool RemoveEnabled => CanManage && Local?.Managed is true;
+    public Geometry PrimaryIcon => (Geometry)Application.Current.FindResource("Fluent" + (Local?.Managed is true ? Local.Enabled ? "Prohibited" : "CheckmarkCircle" : Local?.Status == "Installed · not managed yet" ? "Settings" : "ArrowDownload"));
+}
 internal sealed record VersionChoice(string Label, string Version, ModPackage? Package, CatalogRelease? Release, CatalogItem? Item) { public override string ToString() => Label; }
 internal sealed record ThemeChoice(string Name, Appearance Value) { public override string ToString() => Name; }
 
-internal sealed class MainWindow : Window
+internal sealed partial class MainWindow : Window
 {
-    private readonly ComboBox target = new() { MinWidth = 320, Margin = new Thickness(0, 0, 8, 0) };
+    private readonly ComboBox target = new() { MinWidth = 0, Margin = new Thickness(0, 0, 8, 0) };
     private readonly ComboBox theme = new() { Width = 170, DisplayMemberPath = "Name" };
     private readonly ComboBox scope = new() { Width = 144, Height = 36, Margin = new Thickness(0, 0, 8, 0) };
     private readonly TextBox search = new() { MinWidth = 160, Height = 36, Tag = "Search mods…", ToolTip = "Search mod names and descriptions" };
-    private readonly CheckBox compatibleOnly = new() { Content = "Compatible only", IsChecked = true, Margin = new Thickness(12, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
-    private readonly DataGrid mods = new() { AutoGenerateColumns = false, IsReadOnly = true, CanUserAddRows = false, HeadersVisibility = DataGridHeadersVisibility.Column, SelectionMode = DataGridSelectionMode.Single, SelectionUnit = DataGridSelectionUnit.FullRow, RowHeight = 48, GridLinesVisibility = DataGridGridLinesVisibility.Horizontal };
+    private readonly DataGrid mods = new() { AutoGenerateColumns = false, IsReadOnly = true, CanUserAddRows = false, HeadersVisibility = DataGridHeadersVisibility.Column, SelectionMode = DataGridSelectionMode.Single, SelectionUnit = DataGridSelectionUnit.FullRow, RowHeight = 102, GridLinesVisibility = DataGridGridLinesVisibility.Horizontal };
     private readonly ComboBox versions = new() { Margin = new Thickness(0, 8, 0, 16), DisplayMemberPath = "Label" };
     private readonly TextBlock heading = new() { FontSize = 24, FontWeight = FontWeights.SemiBold };
     private readonly TextBlock description = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 16), LineHeight = 22 };
@@ -39,7 +51,7 @@ internal sealed class MainWindow : Window
     private readonly TextBlock repository = new() { VerticalAlignment = VerticalAlignment.Center };
     private readonly Hyperlink repositoryLink = new();
     private readonly System.Windows.Shapes.Path repositoryIcon = new() { Width = 16, Height = 16, Stretch = Stretch.Uniform, Margin = new Thickness(0, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center };
-    private readonly string userData = AppIdentity.UserData;
+    private readonly string userData;
     private readonly List<ModPackage> packages = new();
     private readonly Themes themes;
     private readonly OnlineCatalog online;
@@ -50,66 +62,18 @@ internal sealed class MainWindow : Window
     private string? hostHash, commonHash;
     private string libraryErrors = "";
 
-    internal MainWindow()
+    internal MainWindow(string? dataDirectory = null)
     {
-        Title = AppIdentity.Name + " · " + AppUpdate.CurrentVersion; Width = 1220; Height = 860; MinWidth = 1060; MinHeight = 770;
+        userData = dataDirectory ?? AppIdentity.UserData;
+        Title = AppIdentity.Name + " · " + AppUpdate.CurrentVersion; Width = 1280; Height = 740; MinWidth = 680; MinHeight = 360;
         Icon = System.Windows.Media.Imaging.BitmapFrame.Create(new Uri("pack://application:,,,/Assets/qmm.ico"));
         themes = new Themes(this, Path.Combine(userData, "settings.json")); online = new OnlineCatalog(userData);
         SetResourceReference(BackgroundProperty, "Page"); SetResourceReference(ForegroundProperty, "Text"); FontFamily = new System.Windows.Media.FontFamily("Segoe UI"); FontSize = 14;
-        var root = new DockPanel { Margin = new Thickness(24) }; Content = root;
-        var top = new StackPanel(); DockPanel.SetDock(top, Dock.Top); root.Children.Add(top);
-        var titleRow = new DockPanel(); top.Children.Add(titleRow);
-        var appearance = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-        appearance.Children.Add(Muted("Theme", new Thickness(0, 0, 12, 0))); appearance.Children.Add(theme); DockPanel.SetDock(appearance, Dock.Right); titleRow.Children.Add(appearance);
-        titleRow.Children.Add(new TextBlock { Text = AppIdentity.Name, FontSize = 28, FontWeight = FontWeights.SemiBold });
-        top.Children.Add(Muted("Find mods for your Designer.", new Thickness(0, 4, 0, 16)));
-        top.Children.Add(Muted("Designer installation", new Thickness(0, 0, 0, 8)));
-        var targetRow = new DockPanel(); top.Children.Add(targetRow);
-        var refresh = Button("Refresh"); refresh.Margin = new Thickness(); browse.Margin = new Thickness(0, 0, 8, 0); DockPanel.SetDock(refresh, Dock.Right); targetRow.Children.Add(refresh); DockPanel.SetDock(browse, Dock.Right); targetRow.Children.Add(browse); targetRow.Children.Add(target);
-        top.Children.Add(compatibility);
-
-        var footer = new StackPanel(); var footerFrame = new Border { Child = footer, BorderThickness = new Thickness(0, 1, 0, 0), Padding = new Thickness(0, 16, 0, 0), Margin = new Thickness(0, 16, 0, 0) }; footerFrame.SetResourceReference(Border.BorderBrushProperty, "Divider"); DockPanel.SetDock(footerFrame, Dock.Bottom); root.Children.Add(footerFrame);
-        var updateRow = new DockPanel { Margin = new Thickness(0, 0, 0, 16) }; footer.Children.Add(updateRow);
-        checkUpdate.Margin = new Thickness(); installUpdate.Margin = new Thickness(8, 0, 0, 0); installUpdate.Tag = "Primary";
-        DockPanel.SetDock(installUpdate, Dock.Right); updateRow.Children.Add(installUpdate); DockPanel.SetDock(checkUpdate, Dock.Right); updateRow.Children.Add(checkUpdate); updateRow.Children.Add(updateStatus);
-        installUpdate.Visibility = Visibility.Collapsed; updateStatus.Text = AppIdentity.Name + " " + AppUpdate.CurrentVersion; updateStatus.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
-        var footerButtons = new StackPanel { Orientation = Orientation.Horizontal }; footer.Children.Add(footerButtons);
-        var import = Button("Import package…"); var backups = Button("Open backups");
-        foreach (var (button, icon) in new[] { (browse, "FolderOpen"), (refresh, "ArrowClockwise"), (refreshCatalog, "ArrowClockwise"), (import, "ArrowImport"), (undo, "ArrowUndo"), (backups, "Archive"), (checkUpdate, "ArrowSync") })
-            SetButtonIcon(button, icon);
-        foreach (var button in new[] { refresh, refreshCatalog, checkUpdate, undo, backups, adopt, cancel }) button.Tag = "Subtle";
-        foreach (var button in new[] { import, undo, backups, cancel }) footerButtons.Children.Add(button);
-        cancel.Visibility = Visibility.Collapsed; cancel.Click += (_, _) => network?.Cancel(); footer.Children.Add(message);
-        footer.Children.Add(Muted("Close Designer before changing mods. Changes take effect the next time it starts.", new Thickness(0, 8, 0, 0)));
-
-        var body = new Grid { Margin = new Thickness(0, 24, 0, 0) }; root.Children.Add(body);
-        body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(3, GridUnitType.Star) }); body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(2, GridUnitType.Star) });
-        var listing = new DockPanel(); var listCard = Card(listing); listCard.Margin = new Thickness(0, 0, 16, 0); body.Children.Add(listCard);
-        var filters = new DockPanel { Margin = new Thickness(0, 0, 0, 16) }; DockPanel.SetDock(filters, Dock.Top); listing.Children.Add(filters);
-        scope.Items.Add("Browse mods"); scope.Items.Add("Installed mods"); scope.SelectedIndex = 0;
-        DockPanel.SetDock(scope, Dock.Left); filters.Children.Add(scope); DockPanel.SetDock(compatibleOnly, Dock.Right); filters.Children.Add(compatibleOnly); filters.Children.Add(search);
-        var catalogFooter = new DockPanel { Margin = new Thickness(0, 16, 0, 0) }; DockPanel.SetDock(catalogFooter, Dock.Bottom); listing.Children.Add(catalogFooter);
-        refreshCatalog.Margin = new Thickness(8, 0, 0, 0); DockPanel.SetDock(refreshCatalog, Dock.Right); catalogFooter.Children.Add(refreshCatalog); catalogStatus.Margin = new Thickness(); catalogStatus.VerticalAlignment = VerticalAlignment.Center; catalogFooter.Children.Add(catalogStatus); catalogStatus.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
-        listing.Children.Add(mods);
-        foreach (var column in new[] { ("Mod", "Name", 2.0), ("Installed", "Installed", 1.0), ("Available", "Available", 1.0), ("Status", "Status", 1.5) })
-            mods.Columns.Add(new DataGridTextColumn { Header = column.Item1, Binding = new Binding(column.Item2), Width = new DataGridLength(column.Item3, DataGridLengthUnitType.Star) });
-
-        var detail = new StackPanel(); detailScroll.Content = detail; var detailCard = Card(detailScroll); Grid.SetColumn(detailCard, 1); body.Children.Add(detailCard);
-        detail.Children.Add(heading); detail.Children.Add(description); detail.Children.Add(availability); detail.Children.Add(Muted("Version", new Thickness())); detail.Children.Add(versions);
-        var actions = new Grid(); actions.ColumnDefinitions.Add(new ColumnDefinition()); actions.ColumnDefinitions.Add(new ColumnDefinition()); actions.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); actions.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); detail.Children.Add(actions);
-        var actionButtons = new[] { install, adopt, toggle, remove };
-        for (int i = 0; i < actionButtons.Length; i++) { var button = actionButtons[i]; button.Margin = new Thickness(0, 0, i % 2 == 0 ? 8 : 0, 8); Grid.SetColumn(button, i % 2); Grid.SetRow(button, i / 2); actions.Children.Add(button); }
-        install.Tag = "Primary";
-        SetButtonIcon(adopt, "Settings"); SetButtonIcon(remove, "Delete"); SetButtonIcon(installUpdate, "ArrowDownload");
-        repositoryIcon.Data = (Geometry)FindResource("GitHubMark"); repositoryIcon.SetBinding(System.Windows.Shapes.Shape.FillProperty, new Binding(nameof(Hyperlink.Foreground)) { Source = repositoryLink }); repositoryIcon.IsHitTestVisible = false;
-        repositoryLink.Inlines.Add(new InlineUIContainer(repositoryIcon) { BaselineAlignment = BaselineAlignment.Center }); repositoryLink.Inlines.Add(new Run("View on GitHub") { TextDecorations = TextDecorations.Underline }); repository.Inlines.Add(repositoryLink);
-        repository.Margin = new Thickness(0, 16, 0, 0); repository.HorizontalAlignment = HorizontalAlignment.Left; detail.Children.Add(repository);
-        foreach (var (control, name) in new (DependencyObject, string)[] { (target, "Designer installation"), (theme, "Theme"), (scope, "Mod list"), (search, "Search mods"), (versions, "Mod version"), (mods, "Available mods") }) System.Windows.Automation.AutomationProperties.SetName(control, name);
-
+        BuildLayout();
         theme.ItemsSource = new[] { new ThemeChoice("Follow System", Appearance.System), new ThemeChoice("Light", Appearance.Light), new ThemeChoice("Dark", Appearance.Dark) };
         theme.SelectedItem = theme.Items.Cast<ThemeChoice>().Single(t => t.Value == themes.Settings.Theme);
         theme.SelectionChanged += (_, _) => { try { if (theme.SelectedItem is ThemeChoice choice) themes.Select(choice.Value, !smoke); } catch (Exception e) { message.Text = "Could not save theme: " + e.Message; } };
-        search.TextChanged += (_, _) => Filter(); scope.SelectionChanged += (_, _) => Filter(); compatibleOnly.Checked += (_, _) => Filter(); compatibleOnly.Unchecked += (_, _) => Filter();
+        search.TextChanged += (_, _) => Filter(); scope.SelectionChanged += (_, _) => Filter();
         refresh.Click += (_, _) => Refresh(); target.SelectionChanged += (_, _) => { if (IsLoaded && !refreshing) Dispatcher.BeginInvoke(Refresh); };
         browse.Click += (_, _) => { if (busy) return; var picker = new OpenFolderDialog { Title = "Choose Q-SYS Designer" }; if (picker.ShowDialog(this) is true) SelectTarget(picker.FolderName); };
         mods.SelectionChanged += (_, _) => ShowMod(); versions.SelectionChanged += (_, _) => Buttons();
@@ -122,7 +86,7 @@ internal sealed class MainWindow : Window
         repositoryLink.RequestNavigate += (_, args) => { Open(args.Uri.AbsoluteUri); args.Handled = true; };
         Closing += (_, args) => { if (applying && !updateHandoff) { args.Cancel = true; message.Text = "Please wait for the current change to finish."; } else network?.Cancel(); };
         Closed += (_, _) => { themes.Dispose(); online.Dispose(); };
-        Loaded += async (_, _) => { if (target.Items.Count == 0) { foreach (var path in Manager.Discover()) target.Items.Add(path); if (target.Items.Count > 0) target.SelectedIndex = 0; } Refresh(); if (!smoke) { await FetchCatalog(); await CheckManagerUpdate(); var notice = AppUpdate.ConsumeNotice(); if (notice is not null) message.Text = notice; } };
+        Loaded += async (_, _) => { if (!smoke) { MigrateKnownInstallations(); if (target.Items.Count == 0) { foreach (var path in Manager.Discover()) target.Items.Add(path); if (target.Items.Count > 0) target.SelectedIndex = 0; } Refresh(); await FetchCatalog(); await CheckManagerUpdate(); var notice = AppUpdate.ConsumeNotice(); if (notice is not null) message.Text = notice; } };
     }
     private static Button Button(string text) => new() { Content = text };
     private void SetButtonIcon(Button button, string icon)
@@ -149,12 +113,12 @@ internal sealed class MainWindow : Window
         if (busy || refreshing) return; refreshing = true; hostHash = commonHash = null;
         try
         {
-            LoadLibrary(); inspection = new Manager(target.Text).Inspect(packages); hostHash = Catalog.HostHash; commonHash = Catalog.CommonHash;
+            LoadLibrary(); var engine = new Manager(target.Text); packages.AddRange(engine.CachedPackages().Where(p => !packages.Any(x => x.ArchiveHash == p.ArchiveHash))); inspection = engine.Inspect(packages); RefreshProfiles(); hostHash = Catalog.HostHash; commonHash = Catalog.CommonHash;
             compatibility.Text = "Q-SYS Designer 10.5 · " + (inspection.Running ? "Designer is running" : "Ready to manage mods"); compatibility.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
             message.Text = inspection.Pending is not null ? "An interrupted change needs recovery before you can continue." : "Choose a mod to see its available versions.";
             if (libraryErrors.Length > 0) message.Text += "\nSome local packages could not be read: " + libraryErrors;
         }
-        catch (Exception error) { inspection = null; compatibility.Text = error.GetBaseException().Message; compatibility.SetResourceReference(TextBlock.ForegroundProperty, "Bad"); message.Text = "Choose a supported Designer installation. Turn off Compatible only to browse all mods."; }
+        catch (Exception error) { inspection = null; compatibility.Text = error.GetBaseException().Message; compatibility.SetResourceReference(TextBlock.ForegroundProperty, "Bad"); message.Text = "Choose a supported Designer installation. Use the All filter to browse mods."; }
         finally { refreshing = false; Filter(); }
     }
     private void Filter()
@@ -167,18 +131,21 @@ internal sealed class MainWindow : Window
             var release = remote?.Releases.Where(IsCompatible).OrderByDescending(r => Version.Parse(r.Version)).FirstOrDefault();
             string available = release?.Version ?? packages.Where(p => p.Manifest.Id == mod.Id).OrderByDescending(p => Version.Parse(p.Manifest.Version)).FirstOrDefault()?.Manifest.Version ?? "—";
             string status = local?.Status ?? "Not compatible";
-            if (local?.Managed is true && release is not null && Version.Parse(release.Version) > Version.Parse(local.Version)) status = "Update available";
-            return new ModRow(mod.Id, mod.Name, local?.Version ?? "—", available, status, local, remote);
-        }).Where(row => (scope.SelectedIndex != 1 || row.Local?.Managed is true || row.Local?.Enabled is true)
-            && (compatibleOnly.IsChecked != true || inspection is not null && (row.Remote is null || row.Remote.Releases.Any(IsCompatible)))
-            && OnlineCatalog.Matches(row.Remote ?? new(row.Id, row.Name, Catalog.Mod(row.Id).Description, OnlineCatalog.Repository(row.Id), Array.Empty<CatalogRelease>()), search.Text)).ToArray();
-        mods.ItemsSource = rows; mods.SelectedItem = rows.FirstOrDefault(m => m.Id == selected) ?? rows.FirstOrDefault(); ShowMod();
+            if (local?.Managed is true && status != "Files changed outside manager" && release is not null && Version.Parse(release.Version) > Version.Parse(local.Version)) status = "Update available";
+            return new ModRow(mod.Id, mod.Name, local?.Version ?? "—", available, status, local, remote) { Thumbnail = thumbnails.GetValueOrDefault(mod.Id), CanManage = inspection is not null && inspection.Pending is null && !inspection.Suspended };
+        }).Where(row => (scope.SelectedIndex switch { 1 => inspection is not null && (row.Remote is null || row.Remote.Releases.Any(IsCompatible) || packages.Any(p => p.Manifest.Id == row.Id)), 2 => row.Local?.Managed is true || row.Local?.Enabled is true, 3 => row.Local?.Managed is true && row.Local.Enabled, 4 => row.Local?.Managed is true && row.Local.Enabled is false, 5 => row.Status == "Update available", _ => true })
+            && OnlineCatalog.Matches(row.Remote ?? new(row.Id, row.Name, Catalog.Mod(row.Id).Description, OnlineCatalog.Repository(row.Id), Array.Empty<CatalogRelease>()), search.Text)).OrderBy(r => r.Name, StringComparer.OrdinalIgnoreCase).ToArray();
+        mods.ItemsSource = rows; mods.SelectedItem = rows.FirstOrDefault(m => m.Id == selected); ShowMod();
+        emptyList.Visibility = rows.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+        RefreshSidebar();
     }
+
     private void ShowMod()
     {
         if (refreshing) return;
+        ArrangeDetails();
         var row = mods.SelectedItem as ModRow; heading.Text = row?.Name ?? "No matching mods";
-        description.Text = row?.Remote?.Description ?? (row is null ? "Try a different search or turn off Compatible only." : Catalog.Mod(row.Id).Description);
+        description.Text = row?.Remote?.Description ?? (row is null ? "Try a different search or use Reset." : Catalog.Mod(row.Id).Description);
         var choices = new List<VersionChoice>();
         if (row?.Remote is { } remote) foreach (var release in remote.Releases)
         {
@@ -188,14 +155,16 @@ internal sealed class MainWindow : Window
         foreach (var package in packages.Where(p => p.Manifest.Id == row?.Id && !choices.Any(c => c.Package?.ArchiveHash == p.ArchiveHash)))
             choices.Add(new(package.Manifest.Version + " · local", package.Manifest.Version, package, null, null));
         var ordered = choices.OrderByDescending(c => c.Release is null ? inspection is not null : IsCompatible(c.Release)).ThenByDescending(c => Version.Parse(c.Version)).ToArray();
+        ShowPresentation(row);
         versions.ItemsSource = ordered; versions.SelectedItem = row?.Local?.Managed is false ? ordered.FirstOrDefault(c => c.Version == row.Local.Version) ?? ordered.FirstOrDefault() : ordered.FirstOrDefault(); Buttons();
     }
     private void Buttons()
     {
         var row = mods.SelectedItem as ModRow; var choice = versions.SelectedItem as VersionChoice;
-        bool ready = !busy && inspection is not null && inspection.Pending is null;
+        bool ready = !busy && inspection is not null && inspection.Pending is null && !inspection.Suspended;
         bool supported = choice is not null && (choice.Release is null ? inspection is not null : IsCompatible(choice.Release));
-        bool alreadyInstalled = row?.Local?.Managed is true && row.Local.Enabled && row.Local.Version == choice?.Version;
+        bool alreadyInstalled = row?.Local?.Managed is true && row.Local.Enabled && row.Local.Version == choice?.Version
+            && inspection?.Profile?.Mods.FirstOrDefault(p => p.Id == row.Id)?.Sha256 == (choice?.Package?.ArchiveHash ?? choice?.Release?.Sha256);
         install.Content = alreadyInstalled ? "Installed" : choice?.Package is null ? "Download & install" : row?.Local?.Managed is true ? "Install version" : "Install";
         SetButtonIcon(install, alreadyInstalled ? "Checkmark" : "ArrowDownload");
         install.IsEnabled = ready && supported && !alreadyInstalled;
@@ -203,13 +172,14 @@ internal sealed class MainWindow : Window
         toggle.IsEnabled = remove.IsEnabled = ready && row?.Local?.Managed is true; toggle.Content = row?.Local?.Enabled is true ? "Disable" : "Enable";
         SetButtonIcon(toggle, row?.Local?.Enabled is true ? "Prohibited" : "CheckmarkCircle");
         undo.Content = inspection?.Pending is not null ? "Recover interrupted change" : "Undo last change"; undo.IsEnabled = !busy && inspection is not null && (inspection.Pending is not null || inspection.CanUndo);
-        target.IsEnabled = mods.IsEnabled = versions.IsEnabled = scope.IsEnabled = search.IsEnabled = compatibleOnly.IsEnabled = refreshCatalog.IsEnabled = !busy;
+        target.IsEnabled = mods.IsEnabled = versions.IsEnabled = scope.IsEnabled = search.IsEnabled = refreshCatalog.IsEnabled = !busy;
         repositoryLink.IsEnabled = row is not null; repositoryLink.NavigateUri = row is null ? null : new Uri("https://github.com/" + OnlineCatalog.Repository(row.Id));
         repositoryLink.ToolTip = row is null ? "Select a mod to view its repository." : "Open " + row.Name + " on GitHub in your browser.";
         System.Windows.Automation.AutomationProperties.SetName(repositoryLink, row is null ? "View on GitHub" : "View " + row.Name + " on GitHub");
+        RefreshSidebar();
         cancel.Visibility = busy && !applying ? Visibility.Visible : Visibility.Collapsed;
         checkUpdate.IsEnabled = !busy && !updateChecking; installUpdate.IsEnabled = !busy && !updateChecking && managerUpdate is not null;
-        availability.Text = row is null ? "" : supported ? "Compatible with your Designer" : "This version is not compatible with the selected Designer.";
+        availability.Text = row is null ? "" : "Installed: " + row.Installed + "\nLatest compatible: " + row.Available + "\n\n" + (supported ? "Verified for the supported Designer 10.5 build." : "This version does not match the selected Designer build.");
         availability.SetResourceReference(TextBlock.ForegroundProperty, supported ? "Muted" : "Bad");
         string? blocked = busy ? "Wait for the current operation to finish." : inspection is null ? "Choose a supported Designer installation." : inspection.Pending is not null ? "Recover the interrupted change before managing mods." : row is null ? "Select a mod first." : null;
         Explain(install, blocked ?? (choice is null ? "Choose a version first." : !supported ? "This version is not compatible with your Designer." : alreadyInstalled ? "This version is already installed and enabled." : "Install the selected version. You'll review the change before applying it."));
@@ -222,7 +192,7 @@ internal sealed class MainWindow : Window
     private async Task FetchCatalog()
     {
         if (busy) return; busy = true; using var cancellation = new CancellationTokenSource(); network = cancellation; Buttons(); catalogStatus.Text = "Checking available mods…";
-        try { snapshot = await online.Fetch(cancellation.Token); catalogStatus.Text = snapshot.Offline ? "Offline · saved catalog from " + snapshot.FetchedUtc.ToLocalTime().ToString("g") : "Catalog up to date · " + snapshot.Document.Mods.Length + " mods"; }
+        try { snapshot = await online.Fetch(cancellation.Token); presentation = await online.FetchPresentation(cancellation.Token) ?? PresentationDocument.Bundled(); await LoadThumbnails(cancellation.Token); catalogStatus.Text = snapshot.Offline ? "Offline · saved catalog from " + snapshot.FetchedUtc.ToLocalTime().ToString("g") : "Catalog up to date · " + snapshot.Document.Mods.Length + " mods"; }
         catch (OperationCanceledException) { catalogStatus.Text = "Catalog refresh canceled."; }
         catch (Exception error) { catalogStatus.Text = "Catalog unavailable. Local packages still work. " + error.GetBaseException().Message; }
         finally { busy = false; network = null; Filter(); Buttons(); }
@@ -247,12 +217,13 @@ internal sealed class MainWindow : Window
     }
     private bool Preview(string title, string details, string? location = null, string action = "Apply change")
     {
-        var dialog = new Window { Owner = this, Title = "Preview change", Width = 540, SizeToContent = SizeToContent.Height, ResizeMode = ResizeMode.NoResize, WindowStartupLocation = WindowStartupLocation.CenterOwner };
-        var panel = new StackPanel { Margin = new Thickness(26) }; dialog.Content = panel;
+        var dialog = new Window { Owner = this, Title = "Preview change", Width = Math.Min(600, SystemParameters.WorkArea.Width - 24), Height = Math.Min(580, SystemParameters.WorkArea.Height - 48), WindowStartupLocation = WindowStartupLocation.CenterOwner };
+        var frame = new DockPanel { Margin = new Thickness(20) }; dialog.Content = frame;
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 16, 0, 0) }; DockPanel.SetDock(buttons, Dock.Bottom); frame.Children.Add(buttons);
+        var panel = new StackPanel(); frame.Children.Add(new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto });
         panel.Children.Add(new TextBlock { Text = title, FontSize = 22, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
         panel.Children.Add(Muted(location ?? target.Text, new Thickness(0, 14, 0, 14)));
         panel.Children.Add(new TextBlock { Text = details, TextWrapping = TextWrapping.Wrap, LineHeight = 23 });
-        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 22, 0, 0) }; panel.Children.Add(buttons);
         var back = Button("Cancel"); back.Tag = "Subtle"; back.IsCancel = true; var apply = Button(action); apply.Tag = "Primary"; apply.IsDefault = true; buttons.Children.Add(back); buttons.Children.Add(apply); apply.Click += (_, _) => dialog.DialogResult = true;
         return dialog.ShowDialog() is true;
     }
@@ -263,11 +234,21 @@ internal sealed class MainWindow : Window
         {
             var row = mods.SelectedItem as ModRow; var choice = versions.SelectedItem as VersionChoice;
             var plan = new Manager(target.Text).Prepare(action, row?.Id ?? "", choice?.Package?.Path);
+            if (inspection is not null && plan.ExpectedStamp != inspection.Stamp) throw new InvalidOperationException("The installation changed. Refresh before previewing again.");
             if (plan.ChangedFiles.Length > 0 && inspection?.Running is true) { message.Text = "Close this Designer installation, then refresh to apply the change."; return; }
             string caption = action switch { "Adopt" => "Manage existing mod", "Undo" => "Undo last change", "Recover" => "Recover interrupted change", _ => action + " " + row?.Name };
             string detail = action == "Adopt" ? "Start tracking this installed version. Its files will stay the same." : $"{plan.ChangedFiles.Length} files will change. Previous files are kept for undo.";
             if (action is "Install" or "Adopt") detail = "Selected version: " + choice?.Version + "\nInstalled version: " + row?.Installed + "\n\n" + detail;
-            if (!Preview(caption, detail)) return;
+            await ExecutePlan(plan, caption, detail);
+        }
+        catch (Exception error) { RecordError(error); }
+    }
+    private async Task ExecutePlan(OperationPlan plan, string caption, string detail)
+    {
+        if (!Preview(caption, detail)) return;
+        if (smoke) { message.Text = "Preview mode: no installation changes are applied."; return; }
+        try
+        {
             busy = applying = true; Buttons(); message.Text = "Applying change…";
             string requests = Path.Combine(userData, "Requests"); Directory.CreateDirectory(requests);
             string token = Guid.NewGuid().ToString("N"), request = Path.Combine(requests, token + ".json"), resultPath = Path.Combine(requests, token + ".result.json");
@@ -280,8 +261,8 @@ internal sealed class MainWindow : Window
             var result = Data.Read<ApplyResult>(File.ReadAllBytes(resultPath)); busy = applying = false; Refresh(); message.Text = result.Message;
         }
         catch (System.ComponentModel.Win32Exception error) when (error.NativeErrorCode == 1223) { message.Text = "Change canceled. Administrator permission was not granted."; }
-        catch (Exception error) { message.Text = error.GetBaseException().Message; }
-        finally { busy = applying = false; Buttons(); }
+        catch (Exception error) { RecordError(error); }
+        finally { busy = applying = false; string receiptMessage = message.Text; Refresh(); message.Text = receiptMessage; Buttons(); }
     }
     private void Import()
     {
@@ -295,7 +276,7 @@ internal sealed class MainWindow : Window
             if (Data.HashFile(destination) != package.ArchiveHash) throw new IOException("Imported package changed during copying.");
             Refresh(); message.Text = package.Manifest.Name + " " + package.Manifest.Version + " imported. Select it to install.";
         }
-        catch (Exception error) { message.Text = error.GetBaseException().Message; }
+        catch (Exception error) { RecordError(error); }
     }
     internal void SmokeSetup(string appearance, CatalogDocument? document)
     {
@@ -303,48 +284,8 @@ internal sealed class MainWindow : Window
         theme.SelectedItem = theme.Items.Cast<ThemeChoice>().Single(t => t.Value == themes.Settings.Theme);
         if (document is not null) { snapshot = new(DateTimeOffset.UtcNow, OnlineCatalog.Validate(document)); catalogStatus.Text = "Catalog up to date · " + document.Mods.Length + " mods"; }
     }
-    internal object SmokeResult() => new { compatible = inspection is not null, rows = mods.Items.Count, packages = packages.Count, running = inspection?.Running, theme = themes.Settings.Theme.ToString(), dark = themes.Dark, mods = mods.Items.Cast<ModRow>().ToArray(), message = message.Text };
+    internal object SmokeResult() => new { compatible = inspection is not null, rows = mods.Items.Count, packages = packages.Count, running = inspection?.Running, theme = themes.Settings.Theme.ToString(), dark = themes.Dark, mods = mods.Items.Cast<ModRow>().Select(m => new { m.Id, m.Name, m.Status, m.Installed, m.Available }).ToArray(), message = message.Text };
     internal Task SmokeFetch() => FetchCatalog();
-    internal string[] SmokeLayoutChecks(bool minimum)
-    {
-        var result = new List<string>(); UpdateLayout();
-        void Check(bool value, string label) { if (!value) throw new Exception(label); result.Add(label); }
-        Rect Bounds(FrameworkElement item) => new(item.TranslatePoint(new Point(), this), item.RenderSize);
-        Check(Math.Abs(Bounds(browse).Left - Bounds(target).Right - 8) < 1, "Installation selector has an 8-unit gap before Browse");
-        Check(Math.Abs(target.ActualHeight - browse.ActualHeight) < 1 && Math.Abs(target.ActualHeight - 36) < 1, "Installation controls share a 36-unit height");
-        Check(Math.Abs(search.ActualHeight - scope.ActualHeight) < 1, "Search and list selector share a height");
-        Check(Bounds(search).Right <= Bounds(compatibleOnly).Left - 8, "Search and compatibility filter do not overlap");
-        var placeholder = (TextBlock)search.Template.FindName("Placeholder", search);
-        search.Text = ""; UpdateLayout();
-        Point hint = placeholder.TranslatePoint(new Point(), search);
-        Check(Math.Abs(hint.Y + placeholder.ActualHeight / 2 - search.ActualHeight / 2) < 1, "Search placeholder is vertically centered");
-        search.Text = "snapshot"; UpdateLayout(); Rect caret = search.GetRectFromCharacterIndex(0);
-        Check(!caret.IsEmpty && Math.Abs(caret.Top + caret.Height / 2 - search.ActualHeight / 2) < 1, "Typed search text is vertically centered");
-        Check(Math.Abs(caret.Left - hint.X) < 1, "Typed text and placeholder share their left inset");
-        search.Text = ""; UpdateLayout();
-        if (!minimum) Check(detailScroll.ScrollableHeight < 1, "All mod detail actions fit at the default window size");
-        else { detailScroll.ScrollToBottom(); UpdateLayout(); Check(Bounds(repository).Bottom <= Bounds(detailScroll).Bottom + 1, "Scrolling reveals the final detail action at minimum size"); detailScroll.ScrollToTop(); UpdateLayout(); }
-        Check(System.Windows.Automation.AutomationProperties.GetName(search) == "Search mods", "Search has a persistent accessible name");
-        Check(Math.Abs(repositoryIcon.ActualWidth - 16) < 1 && Math.Abs(repositoryIcon.ActualHeight - 16) < 1 && !repositoryIcon.Data.IsEmpty(), "Official GitHub vector renders at 16 units");
-        object originalInstallLabel = install.Content;
-        install.Content = "Download & install"; UpdateLayout();
-        IEnumerable<T> Visuals<T>(DependencyObject parent) where T : DependencyObject
-        {
-            for (int i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
-            {
-                var child = VisualTreeHelper.GetChild(parent, i);
-                if (child is T match) yield return match;
-                foreach (var descendant in Visuals<T>(child)) yield return descendant;
-            }
-        }
-        var installLabel = Visuals<TextBlock>(install).Single();
-        var labelPosition = installLabel.TranslatePoint(new Point(), install);
-        bool labelFits = labelPosition.X >= 12 && labelPosition.X + installLabel.ActualWidth <= install.ActualWidth - 12 && labelPosition.Y >= 6 && labelPosition.Y + installLabel.ActualHeight <= install.ActualHeight - 6;
-        install.Content = originalInstallLabel; UpdateLayout();
-        Check(labelFits, "Longest install label fits with its icon and padding");
-        Check(System.Windows.Media.VisualTreeHelper.GetDescendantBounds((System.Windows.Media.Visual)Content).Width <= ((FrameworkElement)Content).ActualWidth + 1, "Content fits the window width");
-        return result.ToArray();
-    }
     private async Task CheckManagerUpdate()
     {
         if (busy || updateChecking) return; updateChecking = true; Buttons(); updateStatus.Text = "Checking for a Q-SYS Mod Manager update…";
@@ -377,29 +318,5 @@ internal sealed class MainWindow : Window
         catch (OperationCanceledException) { message.Text = "Update download canceled. Nothing was installed."; }
         catch (Exception error) { message.Text = error.GetBaseException().Message; }
         finally { busy = applying = false; network = null; Buttons(); }
-    }
-    internal string[] SmokeChecks()
-    {
-        var result = new List<string>();
-        void Check(bool value, string label) { if (!value) throw new Exception(label); result.Add(label); }
-        var linkPeer = new System.Windows.Automation.Peers.HyperlinkAutomationPeer(repositoryLink);
-        Check(linkPeer.GetAutomationControlType() == System.Windows.Automation.Peers.AutomationControlType.Hyperlink && linkPeer.GetName().Contains("Schematic Tools"), "GitHub navigation exposes a named hyperlink");
-        mods.SelectedIndex = 1; Check(repositoryLink.NavigateUri?.AbsoluteUri == "https://github.com/joshua-small/qsys-automatic-geometry", "GitHub destination follows the selected mod"); mods.SelectedIndex = 0;
-        Check(!install.IsEnabled && (string)install.Content == "Installed" && install.ToolTip.ToString()!.Contains("already installed"), "Installed state explains why installation is unavailable");
-        Check(ToolTipService.GetShowOnDisabled(adopt) && adopt.ToolTip.ToString()!.Contains("already managed"), "Disabled management action explains its state");
-        Appearance previous = themes.Settings.Theme;
-        theme.SelectedItem = theme.Items.Cast<ThemeChoice>().Single(t => t.Value == Appearance.Dark); Check(themes.Dark, "Theme selector switches to Dark");
-        theme.SelectedItem = theme.Items.Cast<ThemeChoice>().Single(t => t.Value == Appearance.Light); Check(!themes.Dark, "Theme selector switches to Light");
-        theme.SelectedItem = theme.Items.Cast<ThemeChoice>().Single(t => t.Value == previous);
-        search.Text = "snapshot"; Check(mods.Items.Count == 1 && ((ModRow)mods.Items[0]).Id == "schematic-tools", "Typing filters the actual mod list");
-        search.Text = "no matching mod fixture"; Check(mods.Items.Count == 0, "Empty search result is handled");
-        search.Text = ""; Check(mods.Items.Count == 2, "Clearing search restores both mods");
-        scope.SelectedIndex = 1; Check(mods.Items.Count == 2, "Installed filter includes both managed mods"); scope.SelectedIndex = 0;
-        versions.IsDropDownOpen = true; UpdateLayout(); Check(versions.IsDropDownOpen, "Version dropdown opens"); versions.IsDropDownOpen = false;
-        var future = new ManagerRelease("99.0.0", "v99.0.0", "https://github.com/joshua-small/qsys-mod-manager/releases/download/v99.0.0/QDS-Mod-Manager-99.0.0-win-x64.zip", new string('0', 64), 1);
-        ShowManagerRelease(future); Buttons(); Check(installUpdate.IsVisible && installUpdate.IsEnabled, "New manager release enables install button even while QDS is running");
-        ShowManagerRelease(future with { Version = AppUpdate.CurrentVersion }); Buttons(); Check(installUpdate.Visibility == Visibility.Collapsed, "Current manager version hides update action");
-        updateStatus.Text = AppIdentity.Name + " " + AppUpdate.CurrentVersion;
-        return result.ToArray();
     }
 }

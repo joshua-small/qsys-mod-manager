@@ -55,9 +55,9 @@ internal static class SelfUpdateTests
             string root = Path.Combine(output, name); Directory.CreateDirectory(root);
             foreach (var file in oldArchive.Files) File.WriteAllBytes(Path.Combine(root, file.Key), file.Value);
             Directory.CreateDirectory(Path.Combine(root, "Packages")); File.WriteAllText(Path.Combine(root, "Packages", "custom.qdsmod"), "keep package");
-            File.WriteAllText(Path.Combine(root, "settings.json"), "keep settings"); File.WriteAllText(Path.Combine(root, "unrelated.dll"), "keep unrelated"); return root;
+            File.WriteAllText(Path.Combine(root, "settings.json"), "keep settings"); File.WriteAllText(Path.Combine(root, "profiles.json"), "keep profiles"); File.WriteAllText(Path.Combine(root, "unrelated.dll"), "keep unrelated"); return root;
         }
-        void Preserved(string root) => Check(File.ReadAllText(Path.Combine(root, "Packages", "custom.qdsmod")) == "keep package" && File.ReadAllText(Path.Combine(root, "settings.json")) == "keep settings" && File.ReadAllText(Path.Combine(root, "unrelated.dll")) == "keep unrelated", "Packages, settings and unknown files preserved: " + Path.GetFileName(root));
+        void Preserved(string root) => Check(File.ReadAllText(Path.Combine(root, "Packages", "custom.qdsmod")) == "keep package" && File.ReadAllText(Path.Combine(root, "settings.json")) == "keep settings" && File.ReadAllText(Path.Combine(root, "profiles.json")) == "keep profiles" && File.ReadAllText(Path.Combine(root, "unrelated.dll")) == "keep unrelated", "Packages, profiles, settings and unknown files preserved: " + Path.GetFileName(root));
         Check(release.IsNewerThan("0.2.0.0") && !release.IsNewerThan(candidateVersion + ".0") && !release.IsNewerThan("99.0.0"), "Version comparison normalizes assembly revisions and avoids downgrade");
         string happy = Fresh("success"); var plan = updater.Prepare(happy, release); var result = updater.Apply(plan, newBytes);
         Check(result.Success && result.SafeToStart, "Portable manager update succeeds");

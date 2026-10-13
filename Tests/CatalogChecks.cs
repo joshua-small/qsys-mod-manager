@@ -15,6 +15,12 @@ internal static class CatalogChecks
         var handler = new Handler(uri => Response(uri.AbsoluteUri == OnlineCatalog.IndexUrl ? Data.Bytes(document) : bytes));
         using var online = new OnlineCatalog(root, new HttpClient(handler));
         var fetched = await online.Fetch(default); Check(!fetched.Offline && fetched.Document.Mods.Length == 1, "Catalog fetched and validated");
+        var presentation = PresentationDocument.Bundled(); handler.Get = _ => Response(Data.Bytes(presentation));
+        Check((await online.FetchPresentation(default))?.Mods.Length == 2, "Optional presentation document is verified and cached independently");
+        handler.Get = _ => throw new HttpRequestException("offline");
+        Check((await online.FetchPresentation(default))?.Mods.Length == 2, "Cached release notes work offline");
+        await Reject(() => Task.FromResult(PresentationDocument.Validate(presentation with { Mods = [presentation.Mods[0] with { Thumbnail = "https://example.com/image.png" }] })), "Untrusted thumbnail host rejected");
+        handler.Get = uri => Response(uri.AbsoluteUri == OnlineCatalog.IndexUrl ? Data.Bytes(document) : bytes);
         Check(OnlineCatalog.Compatible(release, Catalog.HostHash, Catalog.CommonHash), "Matching host is compatible");
         Check(!OnlineCatalog.Compatible(release, new string('0', 64), Catalog.CommonHash), "Different host is incompatible");
         Check(!OnlineCatalog.Compatible(release, Catalog.HostHash, null), "Missing dependency is incompatible");

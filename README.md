@@ -7,13 +7,17 @@ Find, install, and manage mods for Q-SYS Designer.
 3. Close Designer, select a mod and version, then choose **Download & install**. Review the change and allow the administrator prompt.
 4. Start Designer to use your mods.
 
-Use **Installed mods** to enable, disable, remove, or change a mod's version. **Undo last change** restores the previous setup. **Manage existing** registers an already installed, matching mod. You can also import a `.qdsmod` file.
+Use the **Installed**, **Enabled**, **Disabled**, **Compatible** or **Updates** filter, or select **All**. Mods are sorted alphabetically. **Reset** clears search and filters. Select a row to open its details; **Close details** restores the wider list. Row actions and details let you install, enable, disable, remove or change versions. **Manage existing** registers an exact matching installation. **Import package…** retains the offline `.qdsmod` workflow.
 
-Hover over an unavailable mod action to see why. **View on GitHub** opens the selected mod's repository in your browser.
+The sidebar selects the Designer installation and profile. **Add** creates a blank profile; **Duplicate**, **Rename**, **Delete**, **Import** and **Export** manage saved profiles. **Preview profile** resolves exact package versions and shows the complete change before applying it to the selected installation. Cancel leaves the installation intact. Exports contain metadata only; supply missing packages separately. Existing managed installations get an initial profile. Profiles assigned to an installation cannot be deleted.
 
-Choose **Light**, **Dark**, or **Follow System** from the Theme menu. Your choice is remembered.
+**Managed mods off** temporarily suspends managed mods while keeping profile choices. Turn them on to restore the enabled set. Unmanaged modules remain and are identified. **Mod updates** reviews old/new versions and release notes before Update Selected or Update All. Pins change only after success. Other installations keep their configuration. **Undo last change** restores a whole grouped change. Recovery remains visible when an operation was interrupted.
 
-Q-SYS Mod Manager checks for its own updates when it opens. You can also choose **Check for updates**. When an update is available, choose **Install** beside its version, then **Update & restart** and allow the administrator prompt. Your settings and mods are kept; Designer can stay open.
+**Launch Designer** opens the selected installation and is blocked during changes or pending recovery. Hover over an unavailable action for its explanation. **Source & help on GitHub** opens the mod repository.
+
+**Settings & diagnostics** contains Light, Dark and Follow System themes, copying the mod list, opening backups and exporting a local diagnostic report. Reports include installation paths, manager/build identity, managed state, compatibility and operation errors; nothing is uploaded.
+
+Manager self-updates are separate from mod updates. Q-SYS Mod Manager checks for its own update when it opens; **Settings & diagnostics → Check manager update** checks again. Choose **Install**, then **Update & restart** and allow the administrator prompt. Settings and mods are kept; Designer can stay open. Profile/state format and transaction contracts are described in [Profiles](docs/PROFILES.md).
 
 Currently supports the compatible Q-SYS Designer 10.5 build on Windows. These are unofficial Designer extensions; nothing is installed on a Core.
 
