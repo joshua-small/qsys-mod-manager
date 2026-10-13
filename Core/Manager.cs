@@ -8,7 +8,7 @@ public sealed record RegistryState(int Schema, Dictionary<string, InstalledMod> 
 public sealed record OperationPlan(int Schema, string Action, string Target, string ModId, string? PackagePath, string? PackageHash, string ExpectedStamp, string[] ChangedFiles, ProfileChange? Group = null, SignedCatalog? CatalogProof = null);
 public sealed record Journal(int Schema, string Id, string Action, string Status, Dictionary<string, string?> Before, Dictionary<string, string?> After, string? BeforeState, string? AfterState, string AfterStamp, string? Error, string? FileSetSha256 = null);
 public sealed record ModStatus(string Id, string Name, string Version, string Status, bool Managed, bool Enabled, string Description);
-public sealed record Inspection(string Target, bool Running, string Stamp, ModStatus[] Mods, string? Pending, bool CanUndo, ModProfile? Profile = null, bool Suspended = false, string[]? Unmanaged = null);
+public sealed record Inspection(string Target, bool Running, string Stamp, ModStatus[] Mods, string? Pending, bool CanUndo, ModProfile? Profile = null, bool Suspended = false, string[]? Unmanaged = null, string? AppliedStamp = null, string? LegacyStamp = null);
 public sealed record ApplyResult(bool Success, string Message, string? Transaction);
 
 /// <summary>Only catalog-approved file layouts may be changed; vendor and unmanaged files are preserved.</summary>
@@ -135,7 +135,10 @@ public sealed class Manager
         }).ToArray();
         var latest = history.FirstOrDefault(j => j.Status == "Complete");
         var unmanaged = Directory.GetFiles(root, "Designer.Modules.*.dll").Select(Path.GetFileName).Where(n => n is not null && !state.Mods.Values.Any(m => Catalog.Mod(m.Id).Module == n)).Cast<string>().Order().ToArray();
-        return new(root, running(root), Stamp(), rows, history.FirstOrDefault(j => j.Status == "Pending")?.Id, latest is not null && latest.AfterStamp == JournalStamp(latest), AppliedProfile(state), state.Suspended, unmanaged);
+        var profile = AppliedProfile(state);
+        string appliedStamp = Data.Hash(Data.Bytes(new { profile, state.Suspended }));
+        string legacyStamp = Stamp(Catalog.LegacyFileOrder.ToDictionary(n => n, n => current[n]), HashIfFile(Local("state.json")));
+        return new(root, running(root), Stamp(), rows, history.FirstOrDefault(j => j.Status == "Pending")?.Id, latest is not null && latest.AfterStamp == JournalStamp(latest), profile, state.Suspended, unmanaged, appliedStamp, legacyStamp);
     }
     private ModProfile AppliedProfile(RegistryState state) => state.Profile ?? ModProfile.Create(Path.GetFileName(root) + " · initial", state.Mods.Values, Data.Hash(Encoding.UTF8.GetBytes(root.ToUpperInvariant()))[..32]);
     public ModPackage[] CachedPackages()

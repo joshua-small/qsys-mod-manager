@@ -20,7 +20,8 @@ public static class Catalog
     private static CatalogDocument? current;
     public static SignedCatalog? Proof { get; private set; }
     public static ApprovalDocument Approvals => approvals;
-    internal static string[] LegacyJournalFiles => bundledApprovals.Mods.SelectMany(m => m.Layouts.Where(l => l.Schema == 1)).SelectMany(l => l.Files).Select(f => f.Name).Distinct().Order(StringComparer.Ordinal).ToArray();
+    internal static string[] LegacyFileOrder => bundledApprovals.Mods.SelectMany(m => new[] { m.Module, m.Marker }).Concat(new[] { Harmony, License }).ToArray();
+    internal static string[] LegacyJournalFiles => LegacyFileOrder.Order(StringComparer.Ordinal).ToArray();
     public static ModDefinition[] Mods => approvals.Mods;
     public static CatalogDocument Bundled => OnlineCatalog.Validate(Resource<CatalogDocument>("Catalog.json"));
     public static CatalogDocument Current => current ?? Bundled;

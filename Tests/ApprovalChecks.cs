@@ -86,7 +86,19 @@ internal static class ApprovalChecks
             AfterStamp = Data.Hash(Data.Bytes(new { files = reorderedAfter, state = historical.AfterState })) };
         File.WriteAllBytes(historyFile, Data.Bytes(historical));
         Check(manager.Inspect([modern]).CanUndo, "Historical journal ordering remains valid");
+        var shared = ModProfile.Create("Shared across installations", [new(legacy.Manifest.Id, legacy.Manifest.Version, legacy.ArchiveHash, true)]);
+        var first = Engine(Fresh("catalog-growth-first")); var second = Engine(Fresh("catalog-growth-second"));
+        first.Apply(first.PrepareProfile(shared, [legacy])); second.Apply(second.PrepareProfile(shared, [legacy]));
+        string libraryDirectory = Path.Combine(output, "catalog-growth-library");
+        var library = new ProfileLibrary(libraryDirectory); library.Reconcile(first.Inspect([legacy])); library.Reconcile(second.Inspect([legacy]));
+        first.Apply(first.Prepare("Install", legacy.Manifest.Id, modern.Path)); library.Reconcile(first.Inspect([modern]));
+        var legacyStore = library.Store with { Schema = 1, Assignments = library.Store.Assignments.Select(a => a with
+            { AppliedStamp = null, Stamp = (a.Target == first.Inspect([]).Target ? first : second).Inspect([]).LegacyStamp! }).ToArray() };
+        File.WriteAllBytes(Path.Combine(libraryDirectory, "profiles.json"), Data.Bytes(legacyStore));
         ApprovalDocument.Preserve(original, expanded); Catalog.ForTool(expanded);
+        library = new ProfileLibrary(libraryDirectory); library.Reconcile(second.Inspect([legacy]));
+        Check(library.Store.Profiles.Single(p => p.Id == shared.Id).Mods.Single().Sha256 == modern.ArchiveHash, "Catalog growth and 0.6 library migration preserve another installation's newer saved pins");
+        Check(library.Store.Schema == 2, "Profile assignment migration records stable applied-configuration stamps");
         // Adding a definition must not invalidate earlier journals or offline restoration.
         Check(manager.Inspect([modern]).CanUndo, "Catalog growth preserves whole-change undo");
         manager.Apply(manager.Prepare("Undo"));
@@ -114,6 +126,8 @@ internal static class ApprovalChecks
         var futureLayout = new PackageLayout(2, schematicDefinition.Layouts.Last().Files.Append(new ApprovedFile(extraName, false)).ToArray());
         var extended = expanded with { Mods = expanded.Mods.Select(m => m.Id == schematicDefinition.Id ? m with { Layouts = m.Layouts.Append(futureLayout).ToArray() } : m).ToArray() };
         Catalog.ForTool(extended);
+        library.Reconcile(second.Inspect([legacy]));
+        Check(library.Store.Profiles.Single(p => p.Id == shared.Id).Mods.Single().Sha256 == modern.ArchiveHash, "Later file-layout additions do not overwrite saved profile pins");
         var futureFiles = modern.Files.ToDictionary(p => p.Key, p => p.Value); futureFiles[extraName] = extraBytes;
         var futurePackage = Package("extra-private-file", modern.Manifest with { Files = modern.Manifest.Files.Append(new PackageFile(extraName, Data.Hash(extraBytes), extraBytes.Length, false)).ToArray() }, futureFiles);
         File.WriteAllText(Path.Combine(root, extraName), "existing user file");

@@ -23,7 +23,7 @@ public sealed record ModProfile(int Schema, string Id, string Name, string Desig
 }
 public sealed record ProfilePackage(string Id, string Path, string Sha256);
 public sealed record ProfileChange(ModProfile Profile, ProfilePackage[] Packages, bool Suspended);
-public sealed record ProfileAssignment(string Target, string ProfileId, string Stamp);
+public sealed record ProfileAssignment(string Target, string ProfileId, string Stamp, string? AppliedStamp = null);
 public sealed record ProfileStore(int Schema, ModProfile[] Profiles, ProfileAssignment[] Assignments);
 
 /// <summary>Reusable definitions; each installation's journaled snapshot remains the applied truth.</summary>
@@ -34,12 +34,13 @@ public sealed class ProfileLibrary
     public ProfileLibrary(string directory)
     {
         path = Path.Combine(directory, "profiles.json");
-        Store = File.Exists(path) ? Data.Read<ProfileStore>(File.ReadAllBytes(path)) : new(1, [], []);
-        if (Store.Schema != 1 || Store.Profiles.Length > 1000 || Store.Profiles.Select(p => p.Id).Distinct().Count() != Store.Profiles.Length) throw new InvalidDataException("Invalid profile library.");
+        Store = File.Exists(path) ? Data.Read<ProfileStore>(File.ReadAllBytes(path)) : new(2, [], []);
+        if (Store.Schema is not (1 or 2) || Store.Profiles.Length > 1000 || Store.Profiles.Select(p => p.Id).Distinct().Count() != Store.Profiles.Length) throw new InvalidDataException("Invalid profile library.");
         foreach (var profile in Store.Profiles) profile.Validate();
     }
     private void Persist()
     {
+        Store = Store with { Schema = 2 };
         Directory.CreateDirectory(Path.GetDirectoryName(path)!); string temp = path + "." + Guid.NewGuid().ToString("N");
         try { using (var stream = new FileStream(temp, FileMode.CreateNew)) { stream.Write(Data.Bytes(Store)); stream.Flush(true); } File.Move(temp, path, true); }
         finally { if (File.Exists(temp)) File.Delete(temp); }
@@ -52,14 +53,18 @@ public sealed class ProfileLibrary
     {
         if (inspection.Pending is not null || inspection.Profile is null) return;
         var previous = Store.Assignments.FirstOrDefault(a => string.Equals(a.Target, inspection.Target, StringComparison.OrdinalIgnoreCase));
-        // A changed journal stamp includes undo/recovery and successful changes whose UI receipt was lost.
-        if (!Store.Profiles.Any(p => p.Id == inspection.Profile.Id) || previous is not null && previous.Stamp != inspection.Stamp)
+        // Catalog growth changes the preview's file universe, not an installation's applied pins.
+        // Legacy assignments compare the original 0.6 file order during this one-time migration.
+        string appliedStamp = inspection.AppliedStamp ?? inspection.Stamp;
+        bool appliedChanged = previous is not null && (previous.AppliedStamp is { } savedStamp
+            ? savedStamp != appliedStamp : previous.Stamp != (inspection.LegacyStamp ?? inspection.Stamp));
+        if (!Store.Profiles.Any(p => p.Id == inspection.Profile.Id) || appliedChanged)
         {
             var saved = Store.Profiles.FirstOrDefault(p => p.Id == inspection.Profile.Id);
             Save(inspection.Profile with { Name = saved?.Name ?? inspection.Profile.Name });
         }
-        if (previous?.Stamp == inspection.Stamp && previous.ProfileId == inspection.Profile.Id) return;
-        Store = Store with { Assignments = Store.Assignments.Where(a => !string.Equals(a.Target, inspection.Target, StringComparison.OrdinalIgnoreCase)).Append(new(inspection.Target, inspection.Profile.Id, inspection.Stamp)).ToArray() }; Persist();
+        if (previous?.Stamp == inspection.Stamp && previous.ProfileId == inspection.Profile.Id && previous.AppliedStamp == appliedStamp) return;
+        Store = Store with { Assignments = Store.Assignments.Where(a => !string.Equals(a.Target, inspection.Target, StringComparison.OrdinalIgnoreCase)).Append(new(inspection.Target, inspection.Profile.Id, inspection.Stamp, appliedStamp)).ToArray() }; Persist();
     }
     public void Delete(string id)
     {
