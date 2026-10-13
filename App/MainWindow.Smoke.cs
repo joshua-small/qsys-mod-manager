@@ -14,6 +14,14 @@ internal sealed partial class MainWindow
         Check(mods.Items.Count == 2, "Both supported mods are listed"); mods.SelectedIndex = 0; UpdateLayout();
         Check(detailCard.Visibility == Visibility.Visible && repositoryLink.NavigateUri is not null, "Selecting a row reveals details and repository");
         Check(AutomationProperties.GetName(repositoryLink).Contains(((ModRow)mods.SelectedItem).Name), "Repository accessible name follows selected mod");
+        Check(authorLink.NavigateUri?.AbsoluteUri == "https://github.com/joshua-small" && AutomationProperties.GetName(authorLink) == "joshua-small on GitHub", "Author username links to its GitHub profile");
+        Check(notice.Visibility == Visibility.Collapsed, "Idle browsing has no footer or status notice");
+        message.Text = "An operation needs attention."; Check(notice.Visibility == Visibility.Visible, "Operation feedback is visible without a footer"); message.Text = "";
+        Check(applyProfile.Visibility == Visibility.Collapsed && profileState.Visibility == Visibility.Collapsed, "Applied profile does not repeat its name or show an unnecessary apply action");
+        var savedProfiles = profiles.ItemsSource; var savedSelection = profiles.SelectedItem; var alternative = ModProfile.Create("Unapplied profile");
+        profiles.ItemsSource = profiles.Items.Cast<ModProfile>().Append(alternative).ToArray(); profiles.SelectedItem = alternative;
+        Check(applyProfile.Visibility == Visibility.Visible && profileState.Text == "Selection not applied", "Different profile selection exposes preview and unapplied state");
+        profiles.ItemsSource = savedProfiles; profiles.SelectedItem = savedSelection;
         Check(AutomationProperties.GetName(profiles) == "Profile" && AutomationProperties.GetName(search) == "Search mods", "Profile and search retain accessible names");
         var originalTheme = themes.Settings.Theme;
         foreach (Appearance appearance in Enum.GetValues<Appearance>()) { themes.Select(appearance, false); Check(themes.Settings.Theme == appearance, "Theme renders: " + appearance); }
@@ -26,8 +34,8 @@ internal sealed partial class MainWindow
         scope.SelectedIndex = 4; Check(mods.Items.Count == inspection.Mods.Count(m => m.Managed && !m.Enabled), "Disabled filter reflects installation");
         scope.SelectedIndex = 5; Check(mods.Items.Count == AvailableUpdates().Length, "Updates filter agrees with update review"); scope.SelectedIndex = 0;
         Check(profiles.Items.Count > 0 && inspection.Profile is not null, "Existing configuration is represented as an initial profile");
-        var savedInspection = inspection; busy = applying = true; Buttons(); Check(!launch.IsEnabled && !applyProfile.IsEnabled && !suspend.IsEnabled, "Launch and profile changes blocked while applying"); busy = applying = false;
-        inspection = inspection with { Pending = "smoke-pending" }; Buttons(); Check(!launch.IsEnabled && undo.IsEnabled && (string)undo.Content == "Recover interrupted change", "Recovery stays visible and blocks launch"); inspection = savedInspection; Buttons();
+        var savedInspection = inspection; busy = applying = true; Buttons(); Check(!launch.IsEnabled && !applyProfile.IsEnabled && !suspend.IsEnabled && !manageProfile.IsEnabled && notice.Visibility == Visibility.Visible, "Launch and profile changes blocked with visible progress while applying"); busy = applying = false;
+        inspection = inspection with { Pending = "smoke-pending" }; Buttons(); Check(!launch.IsEnabled && undo.IsEnabled && (string)undo.Content == "Recover interrupted change" && notice.Visibility == Visibility.Visible && recoverNow.Visibility == Visibility.Visible, "Inline recovery stays visible and blocks launch"); inspection = savedInspection; Buttons();
         mods.SelectedItem = null; UpdateLayout();
         return checks.ToArray();
     }
@@ -43,11 +51,16 @@ internal sealed partial class MainWindow
         if (ActualWidth < 1060) Check(listing.Visibility == Visibility.Collapsed, "Narrow window gives details the browsing area");
         detailScroll.ScrollToBottom(); UpdateLayout(); Check(Bounds(repository).Bottom <= Bounds(detailScroll).Bottom + 2, "Final details link is reachable by scrolling"); detailScroll.ScrollToTop();
         mods.SelectedItem = null; UpdateLayout(); Check(listing.Visibility == Visibility.Visible && panes.ColumnDefinitions[1].ActualWidth == 0, "Closing details restores list width");
+        var savedInspection = inspection; string savedMessage = message.Text;
+        inspection = inspection! with { Pending = "layout-recovery" }; message.Text = "An interrupted change needs recovery before you can continue."; Buttons(); UpdateLayout();
+        Check(Bounds(notice).Right <= Bounds((FrameworkElement)Content).Right + 1 && Bounds(recoverNow).Right <= Bounds(notice).Right, "Inline recovery fits the available window width");
+        inspection = savedInspection; message.Text = savedMessage; Buttons(); UpdateLayout();
         var contentBounds = VisualTreeHelper.GetDescendantBounds((Visual)Content);
         Check(contentBounds.Width <= ((FrameworkElement)Content).ActualWidth + 2, "Content fits window width: " + contentBounds.Width + " / " + ((FrameworkElement)Content).ActualWidth);
         return checks.ToArray();
     }
     internal void SmokeDetails(bool show) { mods.SelectedIndex = show ? 0 : -1; UpdateLayout(); }
+    internal void SmokeSelectMod(string id) { mods.SelectedItem = mods.Items.Cast<ModRow>().First(r => r.Id == id); UpdateLayout(); }
     internal Action SmokeLongNames()
     {
         var originalRows = mods.ItemsSource; var originalProfiles = profiles.ItemsSource;

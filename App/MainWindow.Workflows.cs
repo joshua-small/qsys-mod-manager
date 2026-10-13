@@ -51,21 +51,29 @@ internal sealed partial class MainWindow
     private void RefreshSidebar()
     {
         bool ready = !busy && inspection is not null && inspection.Pending is null;
+        compatibility.Visibility = inspection is not null && !inspection.Running && inspection.Pending is null ? Visibility.Collapsed : Visibility.Visible;
         progress.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
         recoverNow.Visibility = inspection?.Pending is not null ? Visibility.Visible : Visibility.Collapsed; recoverNow.IsEnabled = !busy;
-        suspend.Content = inspection?.Suspended is true ? "Managed mods  OFF  ·  Turn on" : "Managed mods  ON  ·  Turn off"; suspend.IsEnabled = ready;
+        suspend.Content = inspection?.Suspended is true ? "Mods off · Turn on" : "Mods on · Turn off"; suspend.IsEnabled = ready;
+        SetButtonIcon(suspend, inspection?.Suspended is true ? "Prohibited" : "CheckmarkCircle");
         launch.IsEnabled = ready && File.Exists(Path.Combine(target.Text, "Q-Sys Designer.exe"));
         Explain(launch, inspection?.Pending is not null ? "Recover the interrupted operation before launching Designer." : "Open the selected Designer installation");
         profiles.IsEnabled = !busy; applyProfile.IsEnabled = ready && profiles.SelectedItem is ModProfile;
         foreach (var button in profileButtons) button.IsEnabled = !busy;
+        foreach (var item in profileCommands) item.IsEnabled = !busy && (item.Tag as string == "Import" || profiles.SelectedItem is ModProfile);
         foreach (var button in utilityButtons) button.IsEnabled = !busy;
         browse.IsEnabled = refresh.IsEnabled = import.IsEnabled = !busy;
-        var available = AvailableUpdates(); updates.Content = "Mod updates (" + available.Length + ")"; updates.IsEnabled = ready && available.Length > 0;
-        profileState.Text = inspection?.Profile is { } applied ? "Applied: " + (profileLibrary?.Store.Profiles.FirstOrDefault(p => p.Id == applied.Id)?.Name ?? applied.Name) : "Choose a supported installation";
-        if (profiles.SelectedItem is ModProfile selected && inspection?.Profile is { } current && (selected.Id != current.Id || !selected.Mods.SequenceEqual(current.Mods))) profileState.Text += "\nSaved selection differs · preview to apply";
-        unmanagedState.Text = inspection?.Unmanaged is { Length: > 0 } unmanaged ? unmanaged.Length + " unmanaged modules remain when mods are off." : "Only managed mod files are changed.";
-        unmanagedState.ToolTip = string.Join("\n", inspection?.Unmanaged ?? []);
-        undo.Tag = inspection?.Pending is not null ? "Primary" : "Subtle";
+        var available = AvailableUpdates(); updates.Content = available.Length == 0 ? "No mod updates" : available.Length + (available.Length == 1 ? " mod update available" : " mod updates available"); updates.IsEnabled = ready && available.Length > 0;
+        updates.Tag = available.Length > 0 ? "Primary" : null;
+        bool differs = profiles.SelectedItem is ModProfile selected && (inspection?.Profile is not { } current || selected.Id != current.Id || !selected.Mods.SequenceEqual(current.Mods));
+        applyProfile.Visibility = differs ? Visibility.Visible : Visibility.Collapsed;
+        profileState.Text = differs ? "Selection not applied" : ""; profileState.Visibility = differs ? Visibility.Visible : Visibility.Collapsed;
+        unmanagedState.Text = inspection?.Unmanaged is { Length: > 0 } unmanaged ? unmanaged.Length + (unmanaged.Length == 1 ? " unmanaged module remains" : " unmanaged modules remain") : "";
+        unmanagedState.Visibility = string.IsNullOrEmpty(unmanagedState.Text) ? Visibility.Collapsed : Visibility.Visible;
+        unmanagedState.ToolTip = "Turning mods off leaves these files in place:\n" + string.Join("\n", inspection?.Unmanaged ?? []);
+        catalogStatus.Visibility = catalogStatus.Text.StartsWith("Catalog up to date", StringComparison.Ordinal) ? Visibility.Collapsed : Visibility.Visible;
+        undo.Tag = inspection?.Pending is not null ? "Primary" : null;
+        RefreshNotice();
     }
     private void EditProfile(string action)
     {
@@ -165,7 +173,14 @@ internal sealed partial class MainWindow
     private void ShowPresentation(ModRow? row)
     {
         var data = presentation?.Mods.FirstOrDefault(m => m.Id == row?.Id);
-        author.Text = row is null ? "" : "By " + (data?.Author ?? "Joshua Small");
+        string username = data?.Author ?? "";
+        // Old cached metadata contains a display name. Fall back to the trusted
+        // repository owner until the username metadata has refreshed.
+        if (row is not null && !System.Text.RegularExpressions.Regex.IsMatch(username, @"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$")) username = OnlineCatalog.Repository(row.Id).Split('/')[0];
+        author.Visibility = row is null ? Visibility.Collapsed : Visibility.Visible;
+        authorLink.Inlines.Clear(); authorLink.Inlines.Add(username);
+        authorLink.NavigateUri = row is null ? null : new Uri("https://github.com/" + username);
+        System.Windows.Automation.AutomationProperties.SetName(authorLink, username + " on GitHub"); authorLink.ToolTip = "Open " + username + " on GitHub";
         releaseNotes.Text = row is null ? "" : Notes(row.Id, (versions.SelectedItem as VersionChoice)?.Version);
         detailImage.Source = row is null ? null : thumbnails.GetValueOrDefault(row.Id); detailImage.Visibility = detailImage.Source is null ? Visibility.Collapsed : Visibility.Visible;
     }

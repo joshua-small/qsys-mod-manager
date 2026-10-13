@@ -34,9 +34,9 @@ internal sealed class Themes : IDisposable
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Security.SecurityException) { }
         Dark = Settings.IsDark(systemDark);
         var colors = Dark
-            ? new[] { "#181818", "#242424", "#1E1E1E", "#F5F5F5", "#BDBDBD", "#757575", "#303030", "#0163F7", "#FFFFFF", "#FFB4AB", "#0163F7", "#303030", "#999999", "#383838" }
-            : new[] { "#F5F5F5", "#FFFFFF", "#FFFFFF", "#202020", "#606060", "#8A8A8A", "#F0F0F0", "#0163F7", "#FFFFFF", "#B3261E", "#0163F7", "#EBEBEB", "#727272", "#E5E5E5" };
-        var names = new[] { "Page", "Card", "Input", "Text", "Muted", "Line", "Hover", "Accent", "AccentText", "Bad", "Selected", "Disabled", "DisabledText", "Divider" };
+            ? new[] { "#181818", "#242424", "#1E1E1E", "#F5F5F5", "#BDBDBD", "#757575", "#383838", "#0163F7", "#FFFFFF", "#FFB4AB", "#0163F7", "#303030", "#999999", "#383838", "#2C2C2C", "#20374F", "#80B5FF" }
+            : new[] { "#F5F5F5", "#FFFFFF", "#FFFFFF", "#202020", "#606060", "#8A8A8A", "#D9D9D9", "#0163F7", "#FFFFFF", "#B3261E", "#0163F7", "#EBEBEB", "#727272", "#E5E5E5", "#E8E8E8", "#E7F0FF", "#0058C9" };
+        var names = new[] { "Page", "Card", "Input", "Text", "Muted", "Line", "Hover", "Accent", "AccentText", "Bad", "Selected", "Disabled", "DisabledText", "Divider", "ControlSurface", "SelectedRow", "Link" };
         for (int i = 0; i < names.Length; i++) Application.Current.Resources[names[i]] = new SolidColorBrush((Color)ColorConverter.ConvertFromString(colors[i]));
         TitleBar();
     }
@@ -70,7 +70,7 @@ internal sealed class Themes : IDisposable
         <Setter Property="Background" Value="{DynamicResource Input}"/><Setter Property="Foreground" Value="{DynamicResource Text}"/><Setter Property="BorderBrush" Value="{DynamicResource Line}"/>
         <Setter Property="BorderThickness" Value="1"/><Setter Property="Padding" Value="12,6"/><Setter Property="MinHeight" Value="36"/><Setter Property="Margin" Value="0,0,8,8"/><Setter Property="FocusVisualStyle" Value="{StaticResource KeyboardFocus}"/>
         <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button">
-          <Border x:Name="Surface" CornerRadius="4" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" Padding="{TemplateBinding Padding}"><ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" RecognizesAccessKey="True"/></Border>
+          <Border x:Name="Surface" CornerRadius="4" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" Padding="{TemplateBinding Padding}"><ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalAlignment="Center" RecognizesAccessKey="True"/></Border>
           <ControlTemplate.Triggers>
             <Trigger Property="Tag" Value="Subtle"><Setter TargetName="Surface" Property="Background" Value="Transparent"/><Setter TargetName="Surface" Property="BorderBrush" Value="Transparent"/></Trigger>
             <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Surface" Property="Background" Value="{DynamicResource Hover}"/><Setter TargetName="Surface" Property="BorderBrush" Value="{DynamicResource Accent}"/></Trigger>
@@ -83,6 +83,15 @@ internal sealed class Themes : IDisposable
           </ControlTemplate.Triggers>
         </ControlTemplate></Setter.Value></Setter>
       </Style>
+      <Style TargetType="ContextMenu">
+        <Setter Property="Background" Value="{DynamicResource Input}"/><Setter Property="Foreground" Value="{DynamicResource Text}"/><Setter Property="BorderBrush" Value="{DynamicResource Divider}"/><Setter Property="BorderThickness" Value="1"/><Setter Property="Padding" Value="5"/><Setter Property="MinWidth" Value="190"/>
+        <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ContextMenu"><Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" Padding="{TemplateBinding Padding}" CornerRadius="4"><StackPanel IsItemsHost="True" KeyboardNavigation.DirectionalNavigation="Cycle"/></Border></ControlTemplate></Setter.Value></Setter>
+      </Style>
+      <Style TargetType="MenuItem">
+        <Setter Property="Foreground" Value="{DynamicResource Text}"/><Setter Property="Padding" Value="10,8"/><Setter Property="FocusVisualStyle" Value="{StaticResource KeyboardFocus}"/>
+        <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="MenuItem"><Border x:Name="Surface" Background="Transparent" Padding="{TemplateBinding Padding}" CornerRadius="3"><ContentPresenter ContentSource="Header" RecognizesAccessKey="True"/></Border><ControlTemplate.Triggers><Trigger Property="IsHighlighted" Value="True"><Setter TargetName="Surface" Property="Background" Value="{DynamicResource SelectedRow}"/></Trigger><Trigger Property="IsEnabled" Value="False"><Setter Property="Foreground" Value="{DynamicResource DisabledText}"/></Trigger></ControlTemplate.Triggers></ControlTemplate></Setter.Value></Setter>
+      </Style>
+      <Style TargetType="Separator"><Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Separator"><Border Height="1" Margin="6,4" Background="{DynamicResource Divider}"/></ControlTemplate></Setter.Value></Setter></Style>
       <Style TargetType="Hyperlink">
         <Setter Property="Foreground" Value="{DynamicResource Text}"/><Setter Property="TextDecorations" Value="{x:Null}"/><Setter Property="Cursor" Value="Hand"/>
         <Style.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter Property="Foreground" Value="{DynamicResource Muted}"/></Trigger><Trigger Property="IsEnabled" Value="False"><Setter Property="Foreground" Value="{DynamicResource DisabledText}"/></Trigger></Style.Triggers>
