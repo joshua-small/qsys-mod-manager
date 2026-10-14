@@ -35,11 +35,35 @@ internal sealed class Themes : IDisposable
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Security.SecurityException) { }
         Dark = Settings.IsDark(systemDark);
         var colors = Dark
-            ? new[] { "#181818", "#242424", "#1E1E1E", "#F5F5F5", "#BDBDBD", "#757575", "#383838", BrandBlue, "#FFFFFF", "#FFB4AB", BrandBlue, "#303030", "#999999", "#383838", "#2C2C2C", "#20384F", "#80C0FF" }
-            : new[] { "#F5F5F5", "#FFFFFF", "#FFFFFF", "#202020", "#606060", "#8A8A8A", "#D9D9D9", BrandBlue, "#FFFFFF", "#B3261E", BrandBlue, "#EBEBEB", "#727272", "#E5E5E5", "#E8E8E8", "#E7F3FF", "#0064C9" };
-        var names = new[] { "Page", "Card", "Input", "Text", "Muted", "Line", "Hover", "Accent", "AccentText", "Bad", "Selected", "Disabled", "DisabledText", "Divider", "ControlSurface", "SelectedRow", "Link" };
+            ? new[] { "#181818", "#242424", "#1E1E1E", "#F5F5F5", "#BDBDBD", "#757575", "#383838", "#FFB4AB", "#303030", "#999999", "#383838", "#2C2C2C" }
+            : new[] { "#F5F5F5", "#FFFFFF", "#FFFFFF", "#202020", "#606060", "#8A8A8A", "#D9D9D9", "#B3261E", "#EBEBEB", "#727272", "#E5E5E5", "#E8E8E8" };
+        var names = new[] { "Page", "Card", "Input", "Text", "Muted", "Line", "Hover", "Bad", "Disabled", "DisabledText", "Divider", "ControlSurface" };
         for (int i = 0; i < names.Length; i++) Application.Current.Resources[names[i]] = new SolidColorBrush((Color)ColorConverter.ConvertFromString(colors[i]));
+        var blue = (Color)ColorConverter.ConvertFromString(BrandBlue);
+        var input = ((SolidColorBrush)Application.Current.Resources["Input"]).Color;
+        var card = ((SolidColorBrush)Application.Current.Resources["Card"]).Color;
+        void Set(string key, Color color) => Application.Current.Resources[key] = new SolidColorBrush(color);
+        void Surface(string key, Color color) { Set(key, color); Set(key + "Text", ReadableText(color)); }
+        Surface("Accent", blue);
+        Set("Selected", blue);
+        Surface("AccentHover", Mix(blue, Colors.Black, .10));
+        Surface("AccentPressed", Mix(blue, Colors.Black, .20));
+        Surface("OptionHighlight", Mix(input, blue, Dark ? .30 : .15));
+        Set("SelectedRow", Mix(card, blue, Dark ? .20 : .09));
+        Set("Link", Mix(blue, Dark ? Colors.White : Colors.Black, Dark ? .50 : .22));
         TitleBar();
+    }
+    private static Color Mix(Color from, Color to, double amount)
+    {
+        byte Channel(byte a, byte b) => (byte)Math.Round(a + (b - a) * amount, MidpointRounding.AwayFromZero);
+        return Color.FromRgb(Channel(from.R, to.R), Channel(from.G, to.G), Channel(from.B, to.B));
+    }
+    private static Color ReadableText(Color background)
+    {
+        static double Linear(byte channel) { double s = channel / 255.0; return s <= .04045 ? s / 12.92 : Math.Pow((s + .055) / 1.055, 2.4); }
+        double luminance = .2126 * Linear(background.R) + .7152 * Linear(background.G) + .0722 * Linear(background.B);
+        // Choose the higher-contrast foreground for each actual interaction shade.
+        return (luminance + .05) / .05 >= 1.05 / (luminance + .05) ? Colors.Black : Colors.White;
     }
     private void TitleBar()
     {
@@ -51,7 +75,6 @@ internal sealed class Themes : IDisposable
 
     private const string Styles = """
     <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-      <SolidColorBrush x:Key="AccentHover" Color="#0073E6"/><SolidColorBrush x:Key="AccentPressed" Color="#0066CC"/>
       <Style x:Key="KeyboardFocus"><Setter Property="Control.Template"><Setter.Value><ControlTemplate><Border Margin="-3" BorderBrush="{DynamicResource Accent}" BorderThickness="2" CornerRadius="6"/></ControlTemplate></Setter.Value></Setter></Style>
       <DataTemplate x:Key="ActionButtonContent">
         <Grid VerticalAlignment="Center">
@@ -77,8 +100,8 @@ internal sealed class Themes : IDisposable
             <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Surface" Property="Background" Value="{DynamicResource Hover}"/><Setter TargetName="Surface" Property="BorderBrush" Value="{DynamicResource Accent}"/></Trigger>
             <Trigger Property="IsPressed" Value="True"><Setter TargetName="Surface" Property="Background" Value="{DynamicResource Divider}"/></Trigger>
             <Trigger Property="Tag" Value="Primary"><Setter TargetName="Surface" Property="Background" Value="{DynamicResource Accent}"/><Setter TargetName="Surface" Property="BorderBrush" Value="{DynamicResource Accent}"/><Setter Property="Foreground" Value="{DynamicResource AccentText}"/></Trigger>
-            <MultiTrigger><MultiTrigger.Conditions><Condition Property="Tag" Value="Primary"/><Condition Property="IsMouseOver" Value="True"/></MultiTrigger.Conditions><Setter TargetName="Surface" Property="Background" Value="{DynamicResource AccentHover}"/></MultiTrigger>
-            <MultiTrigger><MultiTrigger.Conditions><Condition Property="Tag" Value="Primary"/><Condition Property="IsPressed" Value="True"/></MultiTrigger.Conditions><Setter TargetName="Surface" Property="Background" Value="{DynamicResource AccentPressed}"/></MultiTrigger>
+            <MultiTrigger><MultiTrigger.Conditions><Condition Property="Tag" Value="Primary"/><Condition Property="IsMouseOver" Value="True"/></MultiTrigger.Conditions><Setter TargetName="Surface" Property="Background" Value="{DynamicResource AccentHover}"/><Setter Property="Foreground" Value="{DynamicResource AccentHoverText}"/></MultiTrigger>
+            <MultiTrigger><MultiTrigger.Conditions><Condition Property="Tag" Value="Primary"/><Condition Property="IsPressed" Value="True"/></MultiTrigger.Conditions><Setter TargetName="Surface" Property="Background" Value="{DynamicResource AccentPressed}"/><Setter Property="Foreground" Value="{DynamicResource AccentPressedText}"/></MultiTrigger>
             <Trigger Property="IsEnabled" Value="False"><Setter TargetName="Surface" Property="Background" Value="{DynamicResource Disabled}"/><Setter TargetName="Surface" Property="BorderBrush" Value="{DynamicResource Divider}"/><Setter TargetName="Surface" Property="Opacity" Value="1"/><Setter Property="Foreground" Value="{DynamicResource DisabledText}"/></Trigger>
             <MultiTrigger><MultiTrigger.Conditions><Condition Property="Tag" Value="Subtle"/><Condition Property="IsEnabled" Value="False"/></MultiTrigger.Conditions><Setter TargetName="Surface" Property="Background" Value="Transparent"/><Setter TargetName="Surface" Property="BorderBrush" Value="Transparent"/></MultiTrigger>
           </ControlTemplate.Triggers>
@@ -145,7 +168,12 @@ internal sealed class Themes : IDisposable
         <Setter Property="Foreground" Value="{DynamicResource Text}"/><Setter Property="Padding" Value="8"/><Setter Property="MinHeight" Value="32"/>
         <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ComboBoxItem">
           <Border x:Name="Row" Background="Transparent" Padding="{TemplateBinding Padding}" CornerRadius="3"><ContentPresenter VerticalAlignment="Center"/></Border>
-          <ControlTemplate.Triggers><Trigger Property="IsSelected" Value="True"><Setter TargetName="Row" Property="Background" Value="{DynamicResource Selected}"/><Setter Property="Foreground" Value="{DynamicResource AccentText}"/></Trigger><Trigger Property="IsHighlighted" Value="True"><Setter TargetName="Row" Property="Background" Value="{DynamicResource Selected}"/><Setter Property="Foreground" Value="{DynamicResource AccentText}"/></Trigger></ControlTemplate.Triggers>
+          <ControlTemplate.Triggers>
+            <Trigger Property="IsHighlighted" Value="True"><Setter TargetName="Row" Property="Background" Value="{DynamicResource OptionHighlight}"/><Setter Property="Foreground" Value="{DynamicResource OptionHighlightText}"/></Trigger>
+            <Trigger Property="IsKeyboardFocusWithin" Value="True"><Setter TargetName="Row" Property="Background" Value="{DynamicResource OptionHighlight}"/><Setter Property="Foreground" Value="{DynamicResource OptionHighlightText}"/></Trigger>
+            <Trigger Property="IsSelected" Value="True"><Setter TargetName="Row" Property="Background" Value="{DynamicResource Selected}"/><Setter Property="Foreground" Value="{DynamicResource AccentText}"/></Trigger>
+            <Trigger Property="IsEnabled" Value="False"><Setter TargetName="Row" Property="Background" Value="{DynamicResource Disabled}"/><Setter Property="Foreground" Value="{DynamicResource DisabledText}"/></Trigger>
+          </ControlTemplate.Triggers>
         </ControlTemplate></Setter.Value></Setter>
       </Style>
       <Style TargetType="DataGrid"><Setter Property="Background" Value="{DynamicResource Card}"/><Setter Property="Foreground" Value="{DynamicResource Text}"/><Setter Property="RowBackground" Value="{DynamicResource Card}"/><Setter Property="BorderThickness" Value="0"/><Setter Property="HorizontalGridLinesBrush" Value="{DynamicResource Divider}"/><Setter Property="VerticalGridLinesBrush" Value="{DynamicResource Divider}"/></Style>

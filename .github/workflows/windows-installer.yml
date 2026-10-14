@@ -2,10 +2,10 @@ name: Windows installer
 on:
   workflow_dispatch:
   pull_request:
-    paths: ['App/**', 'Core/**', 'Tests/**', 'Pack/**', 'catalog/**', 'Installer/**', 'README.md', 'THIRD-PARTY-NOTICES.txt', '.github/workflows/windows-installer.yml']
+    paths: ['App/**', 'Core/**', 'Tests/**', 'UiTests/**', 'Pack/**', 'catalog/**', 'Installer/**', 'README.md', 'THIRD-PARTY-NOTICES.txt', '.github/workflows/windows-installer.yml']
   push:
     branches: [main]
-    paths: ['App/**', 'Core/**', 'Tests/**', 'Pack/**', 'catalog/**', 'Installer/**', 'README.md', 'THIRD-PARTY-NOTICES.txt', '.github/workflows/windows-installer.yml']
+    paths: ['App/**', 'Core/**', 'Tests/**', 'UiTests/**', 'Pack/**', 'catalog/**', 'Installer/**', 'README.md', 'THIRD-PARTY-NOTICES.txt', '.github/workflows/windows-installer.yml']
 permissions:
   contents: read
 jobs:
@@ -33,6 +33,13 @@ jobs:
           dotnet publish App/QdsModManager.App.csproj -c Release --artifacts-path artifacts/legacy-dotnet -o artifacts/legacy -p:LegacyHost=true -p:DebugType=None -p:DebugSymbols=false
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           dotnet publish Installer/NativeChecks/NativeChecks.csproj -c Release --artifacts-path artifacts/checks-dotnet -o artifacts/checks -p:DebugType=None
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Verify native UI colors and dropdown states
+        shell: pwsh
+        run: |
+          dotnet build UiTests/QdsModManager.UiTests.csproj -c Release --artifacts-path artifacts/ui-dotnet
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          & './artifacts/ui-dotnet/bin/QdsModManager.UiTests/release_win-x64/QdsModManager.UiTests.exe' artifacts/ui-colors
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: Verify grouped profiles, packages and recovery
         shell: pwsh
@@ -138,5 +145,6 @@ jobs:
             artifacts/release/*.json
             artifacts/release/*.txt
             artifacts/validation/**
+            artifacts/ui-colors/**
             artifacts/release/signed-uninstaller/*.exe
           if-no-files-found: error
