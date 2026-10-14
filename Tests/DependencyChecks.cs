@@ -50,6 +50,12 @@ internal static class DependencyChecks
         var manager = Engine("migration");
         manager.Apply(manager.Prepare("Install","schematic-tools",legacy.Path)); manager.Apply(manager.Prepare("Install","automatic-geometry",geometry.Path));
         var original = manager.Inspect(packages); var originalPins = Data.Bytes(original.Profile!);
+        var debug = Package("schematic-tools");
+        Reject(() => manager.Prepare("Install","schematic-tools",debug.Path), "Direct diagnostics upgrade cannot discard bundled features");
+        Reject(() => manager.PrepareInstall(debug,packages), "Resolved diagnostics upgrade requires split migration first");
+        var unsafeProfile = original.Profile! with { Mods = original.Profile!.Mods.Select(p => p.Id == "schematic-tools" ? new ProfileMod(debug.Manifest.Id,debug.Manifest.Version,debug.ArchiveHash,p.Enabled) : p).Append(new ProfileMod(core.Manifest.Id,core.Manifest.Version,core.ArchiveHash,true)).ToArray() };
+        Reject(() => manager.PrepareProfile(unsafeProfile,packages,action:"Updates"), "Grouped diagnostics upgrade cannot bypass split migration");
+        Check(Data.Bytes(manager.Inspect(packages).Profile!).SequenceEqual(originalPins), "Rejected diagnostics upgrades preserve the original bundle");
         Reject(() => manager.PrepareInstall(packing,packages), "Legacy bundle cannot coexist with extracted features");
         var migrate = manager.PrepareSchematicToolsMigration(packages);
         Check(migrate.Group!.Profile.Id == original.Profile!.Id && migrate.Group.Profile.Name == original.Profile.Name, "Migration retains profile identity and name");
@@ -71,7 +77,6 @@ internal static class DependencyChecks
         manager.Apply(manager.PrepareSchematicToolsMigration(packages));
         Check(Manager.SchematicToolsReplacementIds.All(id=>!manager.Inspect(packages).Profile!.Mods.Single(m=>m.Id==id).Enabled), "Disabled bundle migrates to disabled replacements");
         // The 0.17 diagnostic-only successor has no legacy conflict.
-        var debug = Package("schematic-tools");
         Check(Version.Parse(debug.Manifest.Version)>=new Version(0,17,0), "Developer successor fixture present");
         Requirements.Validate(Manager.SchematicToolsReplacementIds.Select(id=>Package(id).Manifest).Append(debug.Manifest));
         checks.Add("Developer-only Schematic Tools can coexist with all replacements");

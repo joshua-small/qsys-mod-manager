@@ -168,6 +168,8 @@ public sealed class Manager
             case "Adopt": case "Install":
                 package = ModPackage.Open(packagePath ?? throw new InvalidOperationException("Choose a package first."));
                 if (package.Manifest.Id != id) throw new InvalidDataException("Package selection changed.");
+                if (installed is not null && RequiresSchematicToolsMigration(id, installed.Version, package.Manifest.Version))
+                    throw new InvalidOperationException("Use Split Schematic Tools before installing the diagnostics-only successor. The legacy bundle's features must be migrated first.");
                 if (action == "Adopt" && (installed is not null || package.Manifest.Files.Any(f => current[f.Name] != f.Sha256))) throw new InvalidOperationException("Only an exact existing package can be registered.");
                 var previousFiles = installed is null ? [] : Stored(installed).Manifest.Files;
                 foreach (var file in package.Manifest.Files)
@@ -206,6 +208,8 @@ public sealed class Manager
         var files = new Dictionary<string, byte[]?>(StringComparer.Ordinal); var resolved = new List<ModPackage>(); var desired = new Dictionary<string, InstalledMod>();
         foreach (var pin in group.Profile.Mods.OrderBy(m => m.Id))
         {
+            if (state.Mods.TryGetValue(pin.Id, out var prior) && RequiresSchematicToolsMigration(pin.Id, prior.Version, pin.Version))
+                throw new InvalidOperationException("Use Split Schematic Tools before installing the diagnostics-only successor. The legacy bundle's features must be migrated first.");
             var reference = group.Packages.SingleOrDefault(p => p.Id == pin.Id) ?? throw new InvalidDataException("Missing package: " + pin.Id);
             var package = ModPackage.Open(reference.Path);
             if (reference.Sha256 != pin.Sha256 || package.ArchiveHash != pin.Sha256 || package.Manifest.Id != pin.Id || package.Manifest.Version != pin.Version) throw new InvalidDataException("Pinned package changed: " + pin.Id);
@@ -250,6 +254,8 @@ public sealed class Manager
         return PrepareProfile(profile, existing.Select(m => m.Package).Concat(resolved), action: "InstallSet");
     }
     public static readonly string[] SchematicToolsReplacementIds = ["mods-core", "better-packing", "named-signal-colors", "snapshot-inspector", "better-shortcuts", "color-palette-aligned", "icons-filter", "component-controls-info-filter"];
+    public static bool RequiresSchematicToolsMigration(string id, string installed, string candidate) => id == "schematic-tools"
+        && Version.Parse(installed) < new Version(0,17,0) && Version.Parse(candidate) >= new Version(0,17,0);
     public OperationPlan PrepareSchematicToolsMigration(IEnumerable<ModPackage> available)
     {
         Host(); var state = State();

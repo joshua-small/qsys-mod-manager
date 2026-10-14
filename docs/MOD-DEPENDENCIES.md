@@ -14,6 +14,8 @@ Schema-3 layouts also declare minimumVersion and an optional beforeVersion for t
 
 The **Split Schematic Tools** action is visible for an installed, managed bundle earlier than 0.17. It resolves Core and the seven feature packages, then previews one grouped transaction. It preserves the profile ID/name, unrelated exact pins, disabled choices, and suspension state. The old loader is removed as the new loaders are written. An injected failure rolls back the files and profile; Undo restores the original exact bundle package. Historical archives and journal data remain intact.
 
+Ordinary updates cannot replace the legacy bundle with the diagnostics-only successor. Direct installs and grouped profiles must complete the split migration first, so the old bundle cannot silently lose its user features.
+
 The new packages conflict with `schematic-tools` versions before 0.17. The 0.17 successor is optional developer diagnostics and can coexist. Unmanaged conflicting bundle files must be adopted before migration; they are never overwritten implicitly.
 
 Preferences are owned by the mods, outside the installation transaction. Named Signal Colors reads the legacy palette and saves it to the new settings document only on a successful Preferences save. The old file is preserved, so Undo can use the old bundle's settings. Gap previously reset to 20 on startup and was not persistent; the new default remains 20. New preferences are not deleted on Undo.
@@ -28,6 +30,6 @@ Preferences are owned by the mods, outside the installation transaction. Named S
 
 No unsigned runtime approval route was added. `Catalog.ForTool` remains restricted to build tools/tests. A local lab test of prospective approvals is not a production catalog approval.
 
-Validation: 151 existing package/transaction/recovery checks, 27 dependency/migration checks, source compilation, and approval preservation. The dependency checks cover missing and incompatible Core, cycles, tampered manifest policy, disabled consumers, legacy conflicts, atomic migration failure, exact-pin Undo, and the compatible developer-only successor. Native Designer acceptance is tracked separately from manager filesystem checks.
+Validation: 151 existing package/transaction/recovery checks, 31 dependency/migration checks, source compilation, and approval preservation. The dependency checks cover missing and incompatible Core, cycles, tampered manifest policy, disabled consumers, legacy conflicts, atomic migration failure, exact-pin Undo, and the compatible developer-only successor. Native Designer acceptance is tracked separately from manager filesystem checks.
 
 [Implementation tracking](https://github.com/joshua-small/qsys-mod-manager/issues/18).
