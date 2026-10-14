@@ -19,7 +19,7 @@ Scope: [issue #14](https://github.com/joshua-small/qsys-mod-manager/issues/14), 
 4. **[P2, fixed during comparison] Soft fallback logo.** The first render enlarged the ICO's first low-resolution frame. Selecting its largest embedded frame produces a crisp supplied QMM asset. The final images confirm this; no approximate logo was drawn.
 5. **[P2, fixed during native inspection] Help clipped at normal height.** The first interactive candidate required sidebar scrolling to reach the end of Help at 1280×740. Removing the redundant ready-state line and adjusting group gaps keeps all normal sidebar actions visible while retaining scrolling at smaller sizes. The normal-size verified capture confirms the fix.
 
-The original blue accent, native typeface, themes, installation guards, preview-before-apply behavior and managed-file contracts remain. A quieter selected-row tint is intentional; selection and keyboard focus remain distinct. The named QMM fallback artwork is intentionally retained until actual mod thumbnails are supplied.
+The sidebar refinement retained the original blue accent, native typeface, themes, installation guards, preview-before-apply behavior and managed-file contracts. A quieter selected-row tint is intentional; selection and keyboard focus remain distinct. The named QMM fallback artwork is intentionally retained until actual mod thumbnails are supplied. The later UI accent update is recorded below.
 
 ## Required fidelity surfaces
 
@@ -39,3 +39,15 @@ The original blue accent, native typeface, themes, installation guards, preview-
 No actionable P0/P1/P2 findings remain in the scoped visual comparison. Future features remain in issue #12; this report is validation evidence, not a backlog.
 
 final result: passed
+
+## UI accent update (2026-10-14)
+
+The UI portion of [issue #21](https://github.com/joshua-small/qsys-mod-manager/issues/21) uses the owner's final approved state palette in Light, Dark and Follow System: active/default `#0073E6`, hover `#0059B3`, and pressed `#003F80`, with white labels. These exact values supersede the initial `#0080FF` UI-fill request and are maintained together in `Themes.cs`, avoiding rounding differences from a generic percentage mix. Links and quiet list-row tints are calculated from the active blue and theme surfaces.
+
+Dropdowns distinguish the committed `IsSelected` item (active blue plus a checkmark) from the candidate indicated by `IsHighlighted` or keyboard focus (hover blue). Keyboard focus adds an inset outline. Selection wins when the same item is also highlighted/focused; disabled styling wins over both. The candidate shade does not commit another value. This uses WPF's documented [highlight state](https://learn.microsoft.com/en-us/dotnet/api/system.windows.controls.comboboxitem.ishighlighted?view=windowsdesktop-10.0) and [template triggers](https://learn.microsoft.com/en-us/dotnet/desktop/wpf/properties/dependency-property-value-precedence).
+
+Filled action/dropdown surfaces keep white text throughout their active, hover and pressed states. Native checks verify at least 4.5:1 contrast for these pairs and author links; disabled colors retain their neutral palette. This is a scoped contrast check, not a whole-application accessibility certification.
+
+Validation: the Release WPF app and `UiTests` build through WSL with zero warnings/errors. The Windows test executable passes 104 assertions over Light, Dark, System and a return to Light using the same live controls. It checks all three exact colors, white text, contrast, primary/pressed/disabled controls, committed versus highlighted dropdown items, checkmark visibility, overlapping selection/highlight, disabled precedence, and retained selection on close. Native Light/Dark/System control and dropdown renders were inspected; local evidence is in `artifacts/ui-blue-white-verified/`. The fixture sets protected pressed/highlight properties directly to test presentation without controlling the desktop mouse or keyboard, and shows the hover palette as a separate preview; it does not claim a physical-input/DPI sweep. CI runs the same checks and uploads the renders under `artifacts/ui-colors/`.
+
+Reproduce with `dotnet build UiTests/QdsModManager.UiTests.csproj -c Release --artifacts-path artifacts/ui-dotnet`, then run `artifacts/ui-dotnet/bin/QdsModManager.UiTests/release_win-x64/QdsModManager.UiTests.exe artifacts/ui-colors` on Windows. Keep platform build outputs separate. Icon source/generated assets and installation are outside this UI-only change and remain open in issue #21.
