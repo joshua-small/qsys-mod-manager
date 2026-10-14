@@ -26,6 +26,8 @@ internal static class Program
             [window, Path.Combine(output, Guid.NewGuid().ToString("N"), "preferences.json")], null)!;
         var select = type.GetMethod("Select", BindingFlags.Instance | BindingFlags.NonPublic)!;
         var primary = new StateButton { Content = "Primary action", Tag = "Primary" };
+        var hoverPreview = new Button { Content = "Hover palette preview" };
+        hoverPreview.SetResourceReference(Control.BackgroundProperty, "AccentHover"); hoverPreview.SetResourceReference(Control.ForegroundProperty, "AccentHoverText");
         var pressed = new StateButton { Content = "Pressed action", Tag = "Primary" };
         var disabled = new Button { Content = "Disabled action", Tag = "Primary", IsEnabled = false };
         var checkbox = new CheckBox { Content = "Selected control", IsChecked = true, Margin = new Thickness(0, 8, 0, 16) };
@@ -36,7 +38,7 @@ internal static class Program
         primary.Style = pressed.Style = (Style)app.FindResource(typeof(Button));
         selected.Style = highlighted.Style = unavailable.Style = (Style)app.FindResource(typeof(ComboBoxItem));
         combo.Items.Add(selected); combo.Items.Add(highlighted); combo.Items.Add(unavailable); combo.SelectedIndex = 0;
-        panel.Children.Add(primary); panel.Children.Add(pressed); panel.Children.Add(disabled); panel.Children.Add(checkbox); panel.Children.Add(combo);
+        panel.Children.Add(primary); panel.Children.Add(hoverPreview); panel.Children.Add(pressed); panel.Children.Add(disabled); panel.Children.Add(checkbox); panel.Children.Add(combo);
         try
         {
             window.Show(); Pump(); pressed.Press(true);
@@ -46,11 +48,16 @@ internal static class Program
                 select.Invoke(themes, [appearance, false]); Pump();
                 string label = appearance.ToString();
                 Color accent = Resource("Accent"), hover = Resource("AccentHover"), down = Resource("AccentPressed");
-                Check(accent == Color.FromRgb(0, 128, 255), label + ": exact base blue");
+                Check(accent == Color.FromRgb(0, 115, 230), label + ": exact active blue #0073e6");
+                Check(hover == Color.FromRgb(0, 89, 179), label + ": exact hover blue #0059b3");
+                Check(down == Color.FromRgb(0, 63, 128), label + ": exact pressed blue #003f80");
                 Check(accent != hover && hover != down && down != accent, label + ": distinct action shades");
                 Check(hover.R == 0 && down.R == 0 && hover.G < accent.G && down.G < hover.G && hover.B < accent.B && down.B < hover.B, label + ": hover and pressed darken the base blue");
                 foreach (string key in new[] { "Accent", "AccentHover", "AccentPressed", "OptionHighlight" })
+                {
+                    Check(Resource(key + "Text") == Colors.White, label + ": " + key + " text stays white");
                     Check(Contrast(Resource(key), Resource(key + "Text")) >= 4.5, label + ": " + key + " text contrast >= 4.5:1");
+                }
                 Check(Contrast(Resource("Link"), Resource("Card")) >= 4.5, label + ": link contrast >= 4.5:1");
                 Check(Background(primary, "Surface") == accent && ColorOf(primary.Foreground) == Resource("AccentText"), label + ": primary action uses base and readable text");
                 Check(Background(pressed, "Surface") == down && ColorOf(pressed.Foreground) == Resource("AccentPressedText"), label + ": pressed action uses derived shade and text");
@@ -59,8 +66,10 @@ internal static class Program
                 selected.Highlight(false); highlighted.Highlight(true); Pump();
                 Check(combo.SelectedItem == selected, label + ": highlighting does not commit another value");
                 Check(Background(selected, "Row") == accent, label + ": selected dropdown item keeps base blue");
-                Check(Background(highlighted, "Row") == Resource("OptionHighlight") && Background(highlighted, "Row") != accent, label + ": candidate uses a distinct derived tint");
+                Check(Background(highlighted, "Row") == hover && Resource("OptionHighlight") == hover, label + ": candidate uses the hover shade");
                 Check(ColorOf(highlighted.Foreground) == Resource("OptionHighlightText"), label + ": candidate text follows its tint");
+                Check(((FrameworkElement)selected.Template.FindName("SelectionMark", selected)).Visibility == Visibility.Visible, label + ": committed selection has a checkmark");
+                Check(((FrameworkElement)highlighted.Template.FindName("SelectionMark", highlighted)).Visibility == Visibility.Hidden, label + ": uncommitted candidate has no checkmark");
                 selected.Highlight(true); Pump();
                 Check(Background(selected, "Row") == accent, label + ": selected color wins when also highlighted");
                 unavailable.Highlight(true); Pump();

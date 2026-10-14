@@ -10,7 +10,8 @@ namespace QdsModManager.App;
 
 internal sealed class Themes : IDisposable
 {
-    private const string BrandBlue = "#0080FF";
+    // Owner-approved state palette; keep these exact values rather than rounding a percentage mix.
+    private const string ActiveBlue = "#0073E6", HoverBlue = "#0059B3", PressedBlue = "#003F80";
     private readonly Window owner;
     private readonly string path;
     internal Preferences Settings { get; private set; }
@@ -39,16 +40,17 @@ internal sealed class Themes : IDisposable
             : new[] { "#F5F5F5", "#FFFFFF", "#FFFFFF", "#202020", "#606060", "#8A8A8A", "#D9D9D9", "#B3261E", "#EBEBEB", "#727272", "#E5E5E5", "#E8E8E8" };
         var names = new[] { "Page", "Card", "Input", "Text", "Muted", "Line", "Hover", "Bad", "Disabled", "DisabledText", "Divider", "ControlSurface" };
         for (int i = 0; i < names.Length; i++) Application.Current.Resources[names[i]] = new SolidColorBrush((Color)ColorConverter.ConvertFromString(colors[i]));
-        var blue = (Color)ColorConverter.ConvertFromString(BrandBlue);
-        var input = ((SolidColorBrush)Application.Current.Resources["Input"]).Color;
+        var blue = (Color)ColorConverter.ConvertFromString(ActiveBlue);
+        var hover = (Color)ColorConverter.ConvertFromString(HoverBlue);
+        var pressed = (Color)ColorConverter.ConvertFromString(PressedBlue);
         var card = ((SolidColorBrush)Application.Current.Resources["Card"]).Color;
         void Set(string key, Color color) => Application.Current.Resources[key] = new SolidColorBrush(color);
-        void Surface(string key, Color color) { Set(key, color); Set(key + "Text", ReadableText(color)); }
+        void Surface(string key, Color color) { Set(key, color); Set(key + "Text", Colors.White); }
         Surface("Accent", blue);
         Set("Selected", blue);
-        Surface("AccentHover", Mix(blue, Colors.Black, .10));
-        Surface("AccentPressed", Mix(blue, Colors.Black, .20));
-        Surface("OptionHighlight", Mix(input, blue, Dark ? .30 : .15));
+        Surface("AccentHover", hover);
+        Surface("AccentPressed", pressed);
+        Surface("OptionHighlight", hover);
         Set("SelectedRow", Mix(card, blue, Dark ? .20 : .09));
         Set("Link", Mix(blue, Dark ? Colors.White : Colors.Black, Dark ? .50 : .22));
         TitleBar();
@@ -57,13 +59,6 @@ internal sealed class Themes : IDisposable
     {
         byte Channel(byte a, byte b) => (byte)Math.Round(a + (b - a) * amount, MidpointRounding.AwayFromZero);
         return Color.FromRgb(Channel(from.R, to.R), Channel(from.G, to.G), Channel(from.B, to.B));
-    }
-    private static Color ReadableText(Color background)
-    {
-        static double Linear(byte channel) { double s = channel / 255.0; return s <= .04045 ? s / 12.92 : Math.Pow((s + .055) / 1.055, 2.4); }
-        double luminance = .2126 * Linear(background.R) + .7152 * Linear(background.G) + .0722 * Linear(background.B);
-        // Choose the higher-contrast foreground for each actual interaction shade.
-        return (luminance + .05) / .05 >= 1.05 / (luminance + .05) ? Colors.Black : Colors.White;
     }
     private void TitleBar()
     {
@@ -167,11 +162,19 @@ internal sealed class Themes : IDisposable
       <Style TargetType="ComboBoxItem">
         <Setter Property="Foreground" Value="{DynamicResource Text}"/><Setter Property="Padding" Value="8"/><Setter Property="MinHeight" Value="32"/>
         <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ComboBoxItem">
-          <Border x:Name="Row" Background="Transparent" Padding="{TemplateBinding Padding}" CornerRadius="3"><ContentPresenter VerticalAlignment="Center"/></Border>
+          <Grid>
+            <Border x:Name="Row" Background="Transparent" Padding="{TemplateBinding Padding}" CornerRadius="3">
+              <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="20"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                <TextBlock x:Name="SelectionMark" Text="&#xE73E;" FontFamily="Segoe Fluent Icons" FontSize="12" Foreground="{TemplateBinding Foreground}" VerticalAlignment="Center" Visibility="Hidden"/>
+                <ContentPresenter Grid.Column="1" VerticalAlignment="Center"/>
+              </Grid>
+            </Border>
+            <Border x:Name="FocusFrame" BorderBrush="{TemplateBinding Foreground}" BorderThickness="1" Margin="2" CornerRadius="2" IsHitTestVisible="False" Visibility="Collapsed"/>
+          </Grid>
           <ControlTemplate.Triggers>
             <Trigger Property="IsHighlighted" Value="True"><Setter TargetName="Row" Property="Background" Value="{DynamicResource OptionHighlight}"/><Setter Property="Foreground" Value="{DynamicResource OptionHighlightText}"/></Trigger>
-            <Trigger Property="IsKeyboardFocusWithin" Value="True"><Setter TargetName="Row" Property="Background" Value="{DynamicResource OptionHighlight}"/><Setter Property="Foreground" Value="{DynamicResource OptionHighlightText}"/></Trigger>
-            <Trigger Property="IsSelected" Value="True"><Setter TargetName="Row" Property="Background" Value="{DynamicResource Selected}"/><Setter Property="Foreground" Value="{DynamicResource AccentText}"/></Trigger>
+            <Trigger Property="IsKeyboardFocusWithin" Value="True"><Setter TargetName="Row" Property="Background" Value="{DynamicResource OptionHighlight}"/><Setter Property="Foreground" Value="{DynamicResource OptionHighlightText}"/><Setter TargetName="FocusFrame" Property="Visibility" Value="Visible"/></Trigger>
+            <Trigger Property="IsSelected" Value="True"><Setter TargetName="Row" Property="Background" Value="{DynamicResource Selected}"/><Setter Property="Foreground" Value="{DynamicResource AccentText}"/><Setter TargetName="SelectionMark" Property="Visibility" Value="Visible"/></Trigger>
             <Trigger Property="IsEnabled" Value="False"><Setter TargetName="Row" Property="Background" Value="{DynamicResource Disabled}"/><Setter Property="Foreground" Value="{DynamicResource DisabledText}"/></Trigger>
           </ControlTemplate.Triggers>
         </ControlTemplate></Setter.Value></Setter>
