@@ -13,10 +13,11 @@ if (args.Length == 5)
     if (source.RootElement.GetProperty("id").GetString() != mod.Id || source.RootElement.GetProperty("name").GetString() != mod.Name) throw new InvalidDataException("Presentation identity differs from approved package.");
     description = source.RootElement.GetProperty("description").GetString() ?? throw new InvalidDataException("Missing author description.");
 }
-var layout = mod.Layouts.Last(l => l.Schema == 2);
+var version = AssemblyName.GetAssemblyName(Path.Combine(args[1], mod.Module)).Version!.ToString();
+var layout = mod.Layouts.Last(l => l.Schema >= 2 && (l.MinimumVersion is null || Requirements.Matches(new(mod.Id,l.MinimumVersion,l.BeforeVersion),version)));
 var contents = layout.Files.ToDictionary(f => f.Name, f => File.ReadAllBytes(Path.Combine(args[1], f.Name)));
 var files = layout.Files.Select(f => new PackageFile(f.Name, Data.Hash(contents[f.Name]), contents[f.Name].Length, f.Shared)).ToArray();
-var manifest = new PackageManifest(2, mod.Id, mod.Name, AssemblyName.GetAssemblyName(Path.Combine(args[1], mod.Module)).Version!.ToString(), description, Catalog.HostHash, Catalog.CommonHash, files);
+var manifest = new PackageManifest(layout.Schema, mod.Id, mod.Name, version, description, Catalog.HostHash, Catalog.CommonHash, files, layout.Dependencies, layout.Conflicts);
 using (var output = new FileStream(args[2], FileMode.CreateNew))
 using (var zip = new ZipArchive(output, ZipArchiveMode.Create))
 {

@@ -132,7 +132,8 @@ internal sealed partial class MainWindow : Window
             var release = remote?.Releases.Where(IsCompatible).OrderByDescending(r => Version.Parse(r.Version)).FirstOrDefault();
             string available = release?.Version ?? packages.Where(p => p.Manifest.Id == mod.Id).OrderByDescending(p => Version.Parse(p.Manifest.Version)).FirstOrDefault()?.Manifest.Version ?? "—";
             string status = local?.Status ?? "Not compatible";
-            if (local?.Managed is true && status != "Files changed outside manager" && release is not null && Version.Parse(release.Version) > Version.Parse(local.Version)) status = "Update available";
+            if (local?.Managed is true && status != "Files changed outside manager" && release is not null && Version.Parse(release.Version) > Version.Parse(local.Version))
+                status = Manager.RequiresSchematicToolsMigration(mod.Id, local.Version, release.Version) ? "Split migration available" : "Update available";
             return new ModRow(mod.Id, mod.Name, local?.Version ?? "—", available, status, local, remote) { Thumbnail = thumbnails.GetValueOrDefault(mod.Id) ?? Icon, CanManage = inspection is not null && inspection.Pending is null && !inspection.Suspended };
         }).Where(row => (scope.SelectedIndex switch { 1 => inspection is not null && (row.Remote is null || row.Remote.Releases.Any(IsCompatible) || packages.Any(p => p.Manifest.Id == row.Id)), 2 => row.Local?.Managed is true || row.Local?.Enabled is true, 3 => row.Local?.Managed is true && row.Local.Enabled, 4 => row.Local?.Managed is true && row.Local.Enabled is false, 5 => row.Status == "Update available", _ => true })
             && OnlineCatalog.Matches(row.Remote ?? new(row.Id, row.Name, Catalog.Mod(row.Id).Description, OnlineCatalog.Repository(row.Id), Array.Empty<CatalogRelease>()), search.Text)).OrderBy(r => r.Name, StringComparer.OrdinalIgnoreCase).ToArray();
@@ -161,6 +162,8 @@ internal sealed partial class MainWindow : Window
     }
     private void Buttons()
     {
+        migrate.Visibility = inspection?.Profile?.Mods.Any(p => p.Id == "schematic-tools" && Version.Parse(p.Version) < new Version(0,17,0)) is true ? Visibility.Visible : Visibility.Collapsed;
+        migrate.IsEnabled = !busy && inspection is { Pending: null, Running: false };
         var row = mods.SelectedItem as ModRow; var choice = versions.SelectedItem as VersionChoice;
         bool ready = !busy && inspection is not null && inspection.Pending is null && !inspection.Suspended;
         bool supported = choice is not null && (choice.Release is null ? inspection is not null : IsCompatible(choice.Release));
@@ -238,12 +241,15 @@ internal sealed partial class MainWindow : Window
         try
         {
             var row = mods.SelectedItem as ModRow; var choice = versions.SelectedItem as VersionChoice;
-            var plan = new Manager(target.Text).Prepare(action, row?.Id ?? "", choice?.Package?.Path);
+            var manager = new Manager(target.Text);
+            if (action == "Install" && choice?.Package is { } selected) await DownloadDependencies(selected);
+            var plan = action == "Install" && choice?.Package is { } package ? manager.PrepareInstall(package, packages) : manager.Prepare(action, row?.Id ?? "", choice?.Package?.Path);
             if (inspection is not null && plan.ExpectedStamp != inspection.Stamp) throw new InvalidOperationException("The installation changed. Refresh before previewing again.");
             if (plan.ChangedFiles.Length > 0 && inspection?.Running is true) { message.Text = "Close this Designer installation, then refresh to apply the change."; return; }
             string caption = action switch { "Adopt" => "Manage existing mod", "Undo" => "Undo last change", "Recover" => "Recover interrupted change", _ => action + " " + row?.Name };
             string detail = action == "Adopt" ? "Start tracking this installed version. Its files will stay the same." : $"{plan.ChangedFiles.Length} files will change. Previous files are kept for undo.";
             if (action is "Install" or "Adopt") detail = "Selected version: " + choice?.Version + "\nInstalled version: " + row?.Installed + "\n\n" + detail;
+            if (plan.Group is not null) detail += "\n\n" + DescribeGroup(plan.Group.Profile);
             await ExecutePlan(plan, caption, detail);
         }
         catch (Exception error) { RecordError(error); }

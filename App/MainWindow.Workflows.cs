@@ -148,7 +148,7 @@ internal sealed partial class MainWindow
         if (inspection?.Profile is not { } profile || snapshot is null) return [];
         return profile.Mods.Select(pin =>
         {
-            var item = snapshot.Document.Mods.FirstOrDefault(i => i.Id == pin.Id); var release = item?.Releases.Where(IsCompatible).OrderByDescending(r => Version.Parse(r.Version)).FirstOrDefault();
+            var item = snapshot.Document.Mods.FirstOrDefault(i => i.Id == pin.Id); var release = item?.Releases.Where(r => IsCompatible(r) && !Manager.RequiresSchematicToolsMigration(pin.Id, pin.Version, r.Version)).OrderByDescending(r => Version.Parse(r.Version)).FirstOrDefault();
             return (Item: item!, Release: release!, Pin: pin);
         }).Where(x => x.Item is not null && x.Release is not null && Version.Parse(x.Release.Version) > Version.Parse(x.Pin.Version)).ToArray();
     }

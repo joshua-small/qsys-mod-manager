@@ -3,6 +3,7 @@ using System.IO.Compression;
 using System.Text;
 using QdsModManager;
 
+if (args.Length == 4 && args[0] == "--dependency-tests") { DependencyChecks.Run(args[1], args[2], args[3]); return; }
 if (args.Length == 4 && args[0] == "--self-update-tests") { await SelfUpdateTests.Run(args[1], args[2], args[3]); return; }
 if (args.Length == 6 && args[0] == "--legacy-migration") { SelfUpdateTests.Legacy(args[1], args[2], args[3], args[4], args[5]); return; }
 if (args.Length == 3 && args[0] == "--self-update-crash")

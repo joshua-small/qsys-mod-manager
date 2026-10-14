@@ -5,7 +5,12 @@ using System.Text.Json.Serialization;
 namespace QdsModManager;
 
 public sealed record ApprovedFile(string Name, bool Shared, string? Sha256 = null);
-public sealed record PackageLayout(int Schema, ApprovedFile[] Files);
+public sealed record ModRequirement(string Id, string Minimum, string? Before = null);
+public sealed record PackageLayout(int Schema, ApprovedFile[] Files,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] ModRequirement[]? Dependencies = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] ModRequirement[]? Conflicts = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? MinimumVersion = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? BeforeVersion = null);
 public sealed record ModDefinition(string Id, string Name, string Repository, string Module, string? LegacyMarker, PackageLayout[] Layouts)
 {
     [JsonIgnore] public string Description => Catalog.Current.Mods.FirstOrDefault(m => m.Id == Id)?.Description ?? "";
@@ -32,11 +37,16 @@ public sealed record ApprovalDocument(int Schema, ModDefinition[] Mods)
                 || (mod.LegacyMarker is not null && mod.LegacyMarker != "." + mod.Id + "-enabled")) throw new InvalidDataException("Invalid approved mod identity.");
             foreach (var layout in mod.Layouts)
             {
-                if (layout.Schema is not (1 or 2) || layout.Files.Length is < 1 or > 32
+                if (layout.Schema is not (1 or 2 or 3) || layout.Files.Length is < 1 or > 32
                     || layout.Files.Select(f => f.Name).Distinct(StringComparer.OrdinalIgnoreCase).Count() != layout.Files.Length
                     || layout.Files.Count(f => f.Name == mod.Module && !f.Shared && f.Sha256 is null) != 1
                     || (layout.Schema == 1 && (mod.LegacyMarker is null || !layout.Files.Any(f => f.Name == mod.LegacyMarker))))
                     throw new InvalidDataException("Invalid approved file layout.");
+                Requirements.ValidatePolicy(mod.Id, layout.Schema, layout.Dependencies, layout.Conflicts, document.Mods.Select(m => m.Id));
+                if (layout.Schema < 3 ? layout.MinimumVersion is not null || layout.BeforeVersion is not null : layout.MinimumVersion is null)
+                    throw new InvalidDataException("Versioned layouts require schema 3 and a minimum version.");
+                if (layout.MinimumVersion is not null && !Requirements.Matches(new(mod.Id, layout.MinimumVersion, layout.BeforeVersion), layout.MinimumVersion))
+                    throw new InvalidDataException("Empty package-layout version range.");
                 foreach (var file in layout.Files)
                 {
                     // Flat, namespaced additions only. Catalog approval cannot authorize vendor files, paths or scripts.
@@ -45,7 +55,7 @@ public sealed record ApprovalDocument(int Schema, ModDefinition[] Mods)
                     bool owned = !file.Shared && (file.Name == mod.Module || file.Name.StartsWith("Qmm." + mod.Id + ".", StringComparison.Ordinal));
                     if (!(legacy || shared || owned) || !Regex.IsMatch(file.Name, @"^[A-Za-z0-9_.-]{1,160}$") || file.Name.Contains("..")
                         || file.Name.EndsWith('.') || file.Name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
-                        || (layout.Schema == 2 && file.Name == mod.LegacyMarker)) throw new InvalidDataException("Unsafe approved file target: " + file.Name);
+                        || (layout.Schema >= 2 && file.Name == mod.LegacyMarker)) throw new InvalidDataException("Unsafe approved file target: " + file.Name);
                     if (file.Shared && file.Sha256 is null) throw new InvalidDataException("Shared files require an approved hash.");
                     if (file.Sha256 is not null) Data.CheckHash(file.Sha256);
                     if (owners.TryGetValue(file.Name, out var owner) && (owner.File != file || (owner.Id != mod.Id && !file.Shared)))
@@ -53,8 +63,19 @@ public sealed record ApprovalDocument(int Schema, ModDefinition[] Mods)
                     owners[file.Name] = (mod.Id, file);
                 }
             }
-            if (mod.Layouts.Select(l => l.Schema + "|" + string.Join("|", l.Files.Select(f => f.Name).Order(StringComparer.Ordinal))).Distinct().Count() != mod.Layouts.Length)
-                throw new InvalidDataException("Ambiguous duplicate package layouts.");
+            foreach (var group in mod.Layouts.GroupBy(l => l.Schema + "|" + string.Join("|", l.Files.Select(f => f.Name).Order(StringComparer.Ordinal))))
+            {
+                var layouts = group.ToArray();
+                for (int i = 0; i < layouts.Length; i++)
+                    for (int j = i + 1; j < layouts.Length; j++)
+                    {
+                        var first = layouts[i]; var second = layouts[j];
+                        if (first.MinimumVersion is null || second.MinimumVersion is null
+                            || Requirements.Matches(new(mod.Id,first.MinimumVersion,first.BeforeVersion),second.MinimumVersion)
+                            || Requirements.Matches(new(mod.Id,second.MinimumVersion,second.BeforeVersion),first.MinimumVersion))
+                            throw new InvalidDataException("Ambiguous overlapping package layouts.");
+                    }
+            }
         }
         if (owners.Count > 1024) throw new InvalidDataException("Catalog file limit exceeded.");
         return document;
