@@ -19,7 +19,7 @@ Scope: [issue #14](https://github.com/joshua-small/qsys-mod-manager/issues/14), 
 4. **[P2, fixed during comparison] Soft fallback logo.** The first render enlarged the ICO's first low-resolution frame. Selecting its largest embedded frame produces a crisp supplied QMM asset. The final images confirm this; no approximate logo was drawn.
 5. **[P2, fixed during native inspection] Help clipped at normal height.** The first interactive candidate required sidebar scrolling to reach the end of Help at 1280×740. Removing the redundant ready-state line and adjusting group gaps keeps all normal sidebar actions visible while retaining scrolling at smaller sizes. The normal-size verified capture confirms the fix.
 
-The original blue accent, native typeface, themes, installation guards, preview-before-apply behavior and managed-file contracts remain. A quieter selected-row tint is intentional; selection and keyboard focus remain distinct. The named QMM fallback artwork is intentionally retained until actual mod thumbnails are supplied.
+The sidebar refinement retained the original blue accent, native typeface, themes, installation guards, preview-before-apply behavior and managed-file contracts. A quieter selected-row tint is intentional; selection and keyboard focus remain distinct. The named QMM fallback artwork is intentionally retained until actual mod thumbnails are supplied. The later UI accent update is recorded below.
 
 ## Required fidelity surfaces
 
@@ -39,3 +39,9 @@ The original blue accent, native typeface, themes, installation guards, preview-
 No actionable P0/P1/P2 findings remain in the scoped visual comparison. Future features remain in issue #12; this report is validation evidence, not a backlog.
 
 final result: passed
+
+## UI accent update (2026-10-14)
+
+The UI portion of [issue #21](https://github.com/joshua-small/qsys-mod-manager/issues/21) changes the shared `Accent` and `Selected` resources to Avitex `#0080FF` in Light, Dark and Follow System. Primary actions, checked controls, selection and focus indicators consume those resources. Hover (`#0073E6`) and pressed (`#0066CC`) remain darker variants; links and selected-row tints use the same hue with theme-specific lightness. Existing foreground and disabled colors are retained.
+
+Validation: the Release WPF application build through WSL succeeded with zero warnings/errors, and `git diff --check` passed. The native screenshots and interaction checks above describe the earlier sidebar revision; this color update has not had a new native visual review or formal contrast assessment. Icon source/generated assets, installer packaging and installation are outside this UI-only change and remain open in issue #21.

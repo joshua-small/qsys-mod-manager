@@ -10,6 +10,7 @@ namespace QdsModManager.App;
 
 internal sealed class Themes : IDisposable
 {
+    private const string BrandBlue = "#0080FF";
     private readonly Window owner;
     private readonly string path;
     internal Preferences Settings { get; private set; }
@@ -34,8 +35,8 @@ internal sealed class Themes : IDisposable
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Security.SecurityException) { }
         Dark = Settings.IsDark(systemDark);
         var colors = Dark
-            ? new[] { "#181818", "#242424", "#1E1E1E", "#F5F5F5", "#BDBDBD", "#757575", "#383838", "#0163F7", "#FFFFFF", "#FFB4AB", "#0163F7", "#303030", "#999999", "#383838", "#2C2C2C", "#20374F", "#80B5FF" }
-            : new[] { "#F5F5F5", "#FFFFFF", "#FFFFFF", "#202020", "#606060", "#8A8A8A", "#D9D9D9", "#0163F7", "#FFFFFF", "#B3261E", "#0163F7", "#EBEBEB", "#727272", "#E5E5E5", "#E8E8E8", "#E7F0FF", "#0058C9" };
+            ? new[] { "#181818", "#242424", "#1E1E1E", "#F5F5F5", "#BDBDBD", "#757575", "#383838", BrandBlue, "#FFFFFF", "#FFB4AB", BrandBlue, "#303030", "#999999", "#383838", "#2C2C2C", "#20384F", "#80C0FF" }
+            : new[] { "#F5F5F5", "#FFFFFF", "#FFFFFF", "#202020", "#606060", "#8A8A8A", "#D9D9D9", BrandBlue, "#FFFFFF", "#B3261E", BrandBlue, "#EBEBEB", "#727272", "#E5E5E5", "#E8E8E8", "#E7F3FF", "#0064C9" };
         var names = new[] { "Page", "Card", "Input", "Text", "Muted", "Line", "Hover", "Accent", "AccentText", "Bad", "Selected", "Disabled", "DisabledText", "Divider", "ControlSurface", "SelectedRow", "Link" };
         for (int i = 0; i < names.Length; i++) Application.Current.Resources[names[i]] = new SolidColorBrush((Color)ColorConverter.ConvertFromString(colors[i]));
         TitleBar();
@@ -50,7 +51,7 @@ internal sealed class Themes : IDisposable
 
     private const string Styles = """
     <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-      <SolidColorBrush x:Key="AccentHover" Color="#0059DE"/><SolidColorBrush x:Key="AccentPressed" Color="#004EC4"/>
+      <SolidColorBrush x:Key="AccentHover" Color="#0073E6"/><SolidColorBrush x:Key="AccentPressed" Color="#0066CC"/>
       <Style x:Key="KeyboardFocus"><Setter Property="Control.Template"><Setter.Value><ControlTemplate><Border Margin="-3" BorderBrush="{DynamicResource Accent}" BorderThickness="2" CornerRadius="6"/></ControlTemplate></Setter.Value></Setter></Style>
       <DataTemplate x:Key="ActionButtonContent">
         <Grid VerticalAlignment="Center">
