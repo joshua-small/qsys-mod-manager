@@ -25,26 +25,37 @@ function RunSetup([string]$label, [string[]]$extra = @(), [bool]$success = $true
     if (-not $p.WaitForExit(180000)) { throw "Setup timed out: $label" }
     Check (($p.ExitCode -eq 0) -eq $success) "$label exit code: $($p.ExitCode)"
 }
+function InstalledUninstaller {
+    $registered = (Get-ItemProperty -LiteralPath $key).UninstallString
+    $path = [IO.Path]::GetFullPath($registered.Trim().Trim('"'))
+    if ([IO.Path]::GetDirectoryName($path) -ne $target -or [IO.Path]::GetFileName($path) -notmatch '^unins\d{3}\.exe$') {
+        throw 'Registered uninstaller is outside the unique test installation'
+    }
+    return $path
+}
 function VerifyPayload {
     $manifest = Get-Content -LiteralPath (Join-Path $target 'installed-files.json') -Raw | ConvertFrom-Json
     foreach ($f in $manifest.files) { Check ((Get-FileHash -LiteralPath (Join-Path $target $f.path)).Hash.ToLowerInvariant() -eq $f.sha256) ("Installed bytes: " + $f.path) }
     if ($RequireSigned) {
-        foreach ($name in @('Q-SYS Mod Manager.exe','Q-SYS Mod Manager.dll','QdsModManager.Core.dll','unins000.exe')) {
+        foreach ($name in @('Q-SYS Mod Manager.exe','Q-SYS Mod Manager.dll','QdsModManager.Core.dll')) {
             Assert-QmmSignature -FilePath (Join-Path $target $name)
             Check $true ("Installed publisher and timestamp: " + $name)
         }
+        Assert-QmmSignature -FilePath (InstalledUninstaller)
+        Check $true 'Installed uninstaller publisher and timestamp'
     }
     Check ((Get-ItemProperty -LiteralPath $key).DisplayVersion -eq $manifest.version) 'Windows Installed apps shows the installed version'
     return $manifest
 }
 function Uninstall([string]$label) {
-    $uninstaller = Join-Path $target 'unins000.exe'
+    $uninstaller = InstalledUninstaller
     $p = Start-Process -FilePath $uninstaller -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',('/LOG="' + (Join-Path $output ($label + '.log')) + '"')) -WindowStyle Hidden -PassThru
     if (-not $p.WaitForExit(60000)) { throw 'Uninstall timed out' }
     Check ($p.ExitCode -eq 0) "$label exit code"
     # Inno's temporary uninstaller can finish cleanup after the launcher exits.
-    for ($i = 0; $i -lt 50 -and (Test-Path -LiteralPath $key); $i++) { Start-Sleep -Milliseconds 100 }
+    for ($i = 0; $i -lt 150 -and ((Test-Path -LiteralPath $key) -or (Test-Path -LiteralPath $uninstaller)); $i++) { Start-Sleep -Milliseconds 100 }
     Check (-not (Test-Path -LiteralPath $key)) 'Uninstall removes Windows registration'
+    Check (-not (Test-Path -LiteralPath $uninstaller)) 'Uninstaller finishes removing itself before the next installation'
     Check (-not (Test-Path -LiteralPath $shortcut)) 'Uninstall removes the common Start shortcut'
     Check (-not (Test-Path -LiteralPath $desktop)) 'Uninstall removes the optional desktop shortcut'
     Check (-not (Test-Path -LiteralPath (Join-Path $target 'Q-SYS Mod Manager.exe'))) 'Uninstall removes the manager executable'
