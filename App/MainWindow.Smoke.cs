@@ -34,6 +34,7 @@ internal sealed partial class MainWindow
         scope.SelectedIndex = 4; Check(mods.Items.Count == inspection.Mods.Count(m => m.Managed && !m.Enabled), "Disabled filter reflects installation");
         scope.SelectedIndex = 5; Check(mods.Items.Count == AvailableUpdates().Length, "Updates filter agrees with update review"); scope.SelectedIndex = 0;
         Check(profiles.Items.Count > 0 && inspection.Profile is not null, "Existing configuration is represented as an initial profile");
+        Check(migrate.Visibility == (inspection.Profile!.Mods.Any(p => p.Id == "schematic-tools" && Version.Parse(p.Version) < new Version(0,17,0)) ? Visibility.Visible : Visibility.Collapsed), "Split migration action appears only for a managed legacy bundle");
         var savedInspection = inspection; busy = applying = true; Buttons(); Check(!launch.IsEnabled && !applyProfile.IsEnabled && !suspend.IsEnabled && !manageProfile.IsEnabled && notice.Visibility == Visibility.Visible, "Launch and profile changes blocked with visible progress while applying"); busy = applying = false;
         inspection = inspection with { Pending = "smoke-pending" }; Buttons(); Check(!launch.IsEnabled && undo.IsEnabled && (string)undo.Content == "Recover interrupted change" && notice.Visibility == Visibility.Visible && recoverNow.Visibility == Visibility.Visible, "Inline recovery stays visible and blocks launch"); inspection = savedInspection; Buttons();
         mods.SelectedItem = null; UpdateLayout();

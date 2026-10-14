@@ -30,3 +30,5 @@ The **Windows ZIP** remains available for portable use; extract it before openin
 Starting with version 0.5.1, the app, installer, and uninstaller are digitally signed with **Joshua Small** as the verified publisher. Windows SmartScreen may still show a reputation warning for a new release. Download only from the release page above.
 
 Build instructions, including signed installers, are in the [installer build guide](https://github.com/joshua-small/qsys-mod-manager/blob/main/Installer/README.md).
+
+Dependency-aware package installation and bundle migration are described in [Mod dependencies](docs/MOD-DEPENDENCIES.md).

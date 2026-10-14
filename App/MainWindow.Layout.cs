@@ -14,6 +14,7 @@ internal sealed partial class MainWindow
 {
     private readonly Button refresh = Button("Refresh"), import = Button("Import package…"), backups = Button("Open backups");
     private readonly Button suspend = Button("Mods on"), updates = Button("Mod updates (0)"), launch = Button("Launch Designer");
+    private readonly Button migrate = Button("Split Schematic Tools…");
     private readonly ComboBox profiles = new() { DisplayMemberPath = "Name", MinWidth = 0 };
     private readonly Button applyProfile = Button("Preview & apply");
     private readonly TextBlock profileState = Muted("", new Thickness(0, 4, 0, 8));
@@ -73,6 +74,7 @@ internal sealed partial class MainWindow
         side.Children.Add(SectionHeading("Mod updates")); side.Children.Add(updates); refreshCatalog.Content = "Check for updates"; side.Children.Add(refreshCatalog);
         catalogStatus.FontSize = 11; catalogStatus.Margin = new Thickness(0, 2, 0, 0); side.Children.Add(catalogStatus);
         side.Children.Add(SectionHeading("Tools")); side.Children.Add(import); side.Children.Add(undo);
+        side.Children.Add(migrate); migrate.Click += async (_, _) => await MigrateSchematicTools();
         var settings = Button("Settings & diagnostics"); SetButtonIcon(settings, "Settings"); settings.Click += (_, _) => Settings(); utilityButtons.Add(settings); side.Children.Add(settings);
         var help = Button("Help & documentation"); help.Click += (_, _) => Open("https://github.com/joshua-small/qsys-mod-manager#readme"); side.Children.Add(help);
         foreach (var (button, icon) in new[] { (browse, "FolderOpen"), (refresh, "ArrowClockwise"), (refreshCatalog, "ArrowClockwise"), (import, "ArrowImport"), (undo, "ArrowUndo"), (backups, "Archive"), (checkUpdate, "ArrowSync"), (install, "ArrowDownload"), (adopt, "Settings"), (remove, "Delete"), (installUpdate, "ArrowDownload") }) SetButtonIcon(button, icon);

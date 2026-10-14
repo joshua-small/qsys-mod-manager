@@ -195,6 +195,7 @@ public sealed class Manager
             default: throw new InvalidDataException("Unsupported manager action.");
         }
         state = state with { Schema = 2, Profile = profile with { Mods = ModProfile.Create(profile.Name, state.Mods.Values).Mods } };
+        ValidateDependencies(state, package is null ? [] : [package]);
         return new(state, files, package);
     }
     private Change BuildGroup(ProfileChange group)
@@ -223,11 +224,52 @@ public sealed class Manager
         foreach (var previous in state.Mods.Values)
             foreach (var file in Stored(previous).Manifest.Files.Where(f => !f.Shared))
                 if (!resolved.Any(p => p.Manifest.Id == previous.Id && p.Files.ContainsKey(file.Name)) && current[file.Name] is not null) files[file.Name] = null;
-        return new(new(2, desired, group.Profile, group.Suspended), files, null, resolved.ToArray());
+        var next = new RegistryState(2, desired, group.Profile, group.Suspended);
+        ValidateDependencies(next, resolved);
+        return new(next, files, null, resolved.ToArray());
+    }
+    private void ValidateDependencies(RegistryState desired, IEnumerable<ModPackage> incoming)
+    {
+        var available = incoming.ToDictionary(p => p.ArchiveHash);
+        var manifests = desired.Mods.Values.Where(m => m.Enabled).Select(m => available.TryGetValue(m.ArchiveHash, out var package) ? package.Manifest : Stored(m).Manifest).ToArray();
+        Requirements.Validate(manifests);
+        var before = State();
+        foreach (var conflict in manifests.SelectMany(m => m.Conflicts ?? []))
+            if (!before.Mods.ContainsKey(conflict.Id) && File.Exists(FilePath(Catalog.Mod(conflict.Id).Module)))
+                throw new InvalidOperationException("An unmanaged conflicting mod is present: " + conflict.Id + ". Register it before migrating.");
+    }
+    public OperationPlan PrepareInstall(ModPackage selected, IEnumerable<ModPackage> available)
+    {
+        Host(); var state = State();
+        if (state.Suspended) throw new InvalidOperationException("Turn managed mods on before installing a mod.");
+        var existing = state.Mods.Values.Select(m => (Package: Stored(m), m.Enabled)).ToArray();
+        var resolved = Requirements.Resolve(existing, selected, available);
+        var mods = state.Mods.Values.ToDictionary(m => m.Id);
+        foreach (var package in resolved) mods[package.Manifest.Id] = new(package.Manifest.Id, package.Manifest.Version, package.ArchiveHash, true);
+        var profile = AppliedProfile(state) with { Mods = ModProfile.Create("", mods.Values).Mods };
+        return PrepareProfile(profile, existing.Select(m => m.Package).Concat(resolved), action: "InstallSet");
+    }
+    public static readonly string[] SchematicToolsReplacementIds = ["mods-core", "better-packing", "named-signal-colors", "snapshot-inspector", "better-shortcuts", "color-palette-aligned", "icons-filter", "component-controls-info-filter"];
+    public OperationPlan PrepareSchematicToolsMigration(IEnumerable<ModPackage> available)
+    {
+        Host(); var state = State();
+        if (!state.Mods.TryGetValue("schematic-tools", out var old) || Version.Parse(old.Version) >= new Version(0,17,0))
+            throw new InvalidOperationException("Choose an installation with a managed legacy Schematic Tools bundle.");
+        var packages = available.Concat(state.Mods.Values.Select(Stored)).DistinctBy(p => p.ArchiveHash).ToArray();
+        var mods = state.Mods.Values.Where(m => m.Id != "schematic-tools").ToDictionary(m => m.Id);
+        foreach (var id in SchematicToolsReplacementIds)
+        {
+            if (mods.ContainsKey(id)) continue; // Preserve existing exact pins in a partially migrated profile.
+            var package = packages.Where(p => p.Manifest.Id == id).OrderByDescending(p => Version.Parse(p.Manifest.Version)).FirstOrDefault()
+                ?? throw new InvalidOperationException("Migration requires package: " + id);
+            mods[id] = new(id, package.Manifest.Version, package.ArchiveHash, old.Enabled);
+        }
+        var profile = AppliedProfile(state) with { Mods = ModProfile.Create("", mods.Values).Mods };
+        return PrepareProfile(profile, packages, state.Suspended, "Migration");
     }
     public OperationPlan PrepareProfile(ModProfile profile, IEnumerable<ModPackage> packages, bool suspended = false, string action = "Profile")
     {
-        if (action is not ("Profile" or "Updates" or "Suspend" or "Resume")) throw new InvalidDataException("Unsupported grouped action.");
+        if (action is not ("Profile" or "Updates" or "Suspend" or "Resume" or "InstallSet" or "Migration")) throw new InvalidDataException("Unsupported grouped action.");
         var available = packages.ToArray();
         var group = new ProfileChange(profile, profile.Mods.Select(pin => { var p = available.FirstOrDefault(p => p.ArchiveHash == pin.Sha256) ?? throw new InvalidOperationException("Missing exact package: " + pin.Id + " " + pin.Version); return new ProfilePackage(pin.Id, p.Path, p.ArchiveHash); }).ToArray(), suspended);
         var change = BuildGroup(group);
@@ -245,7 +287,7 @@ public sealed class Manager
     }
     public ApplyResult Apply(OperationPlan plan)
     {
-        if (plan.Schema is not (1 or 2) || !string.Equals(root, plan.Target, StringComparison.OrdinalIgnoreCase) || (plan.Group is not null && (plan.Schema != 2 || plan.Action is not ("Profile" or "Updates" or "Suspend" or "Resume")))) throw new InvalidDataException("Invalid operation target.");
+        if (plan.Schema is not (1 or 2) || !string.Equals(root, plan.Target, StringComparison.OrdinalIgnoreCase) || (plan.Group is not null && (plan.Schema != 2 || plan.Action is not ("Profile" or "Updates" or "Suspend" or "Resume" or "InstallSet" or "Migration")))) throw new InvalidDataException("Invalid operation target.");
         Host(); Directory.CreateDirectory(registry);
         using var ownership = new FileStream(Local("operation.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
         if (plan.ExpectedStamp != Stamp()) throw new InvalidOperationException("The installation changed since the preview. Refresh and preview again.");

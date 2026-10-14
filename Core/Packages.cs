@@ -62,7 +62,9 @@ public static class Data
 }
 
 public sealed record PackageFile(string Name, string Sha256, long Length, bool Shared);
-public sealed record PackageManifest(int Schema, string Id, string Name, string Version, string Description, string HostSha256, string CommonSha256, PackageFile[] Files);
+public sealed record PackageManifest(int Schema, string Id, string Name, string Version, string Description, string HostSha256, string CommonSha256, PackageFile[] Files,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] ModRequirement[]? Dependencies = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] ModRequirement[]? Conflicts = null);
 
 /// <summary>Data-only archive. No install scripts, path extraction, or assembly execution.</summary>
 public sealed class ModPackage
@@ -85,11 +87,15 @@ public sealed class ModPackage
             throw new InvalidDataException("A package must contain one manifest and distinct approved payload files.");
         var manifest = Data.Read<PackageManifest>(Read(zip.GetEntry("manifest.json") ?? throw new InvalidDataException("Missing manifest."), 65536));
         var mod = Catalog.Mod(manifest.Id);
-        if (manifest.Schema is not (1 or 2) || manifest.Name != mod.Name || !Version.TryParse(manifest.Version, out var version) || version.Build < 0
+        if (manifest.Schema is not (1 or 2 or 3) || manifest.Name != mod.Name || !Version.TryParse(manifest.Version, out var version) || version.Build < 0
             || manifest.HostSha256 != Catalog.HostHash || manifest.CommonSha256 != Catalog.CommonHash || manifest.Description.Length > 4000)
             throw new InvalidDataException("Unsupported package identity, version or Designer compatibility.");
-        var layout = mod.Layouts.SingleOrDefault(l => l.Schema == manifest.Schema && manifest.Files.Select(f => f.Name).Order().SequenceEqual(l.Files.Select(f => f.Name).Order()))
+        var layout = mod.Layouts.SingleOrDefault(l => l.Schema == manifest.Schema && (l.MinimumVersion is null || Requirements.Matches(new(mod.Id,l.MinimumVersion,l.BeforeVersion),manifest.Version))
+            && manifest.Files.Select(f => f.Name).Order().SequenceEqual(l.Files.Select(f => f.Name).Order()))
             ?? throw new InvalidDataException("Package file set has not been approved.");
+        Requirements.ValidatePolicy(mod.Id, manifest.Schema, manifest.Dependencies, manifest.Conflicts, Catalog.Mods.Select(m => m.Id));
+        if (!Data.Bytes(manifest.Dependencies).SequenceEqual(Data.Bytes(layout.Dependencies)) || !Data.Bytes(manifest.Conflicts).SequenceEqual(Data.Bytes(layout.Conflicts)))
+            throw new InvalidDataException("Package dependencies/conflicts differ from the approved policy.");
         if (zip.Entries.Count != manifest.Files.Length + 1) throw new InvalidDataException("Unexpected archive entries.");
         var files = new Dictionary<string, byte[]>(StringComparer.Ordinal);
         foreach (var file in manifest.Files)
