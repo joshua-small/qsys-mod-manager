@@ -1,0 +1,100 @@
+using System.IO;
+using System.Windows;
+using System.Windows.Controls;
+
+namespace QdsModManager.App;
+
+internal sealed partial class MainWindow
+{
+    private readonly CancellationTokenSource lifetime = new();
+    private readonly UpdateNotifications notifications = new();
+    private bool initialized, checkingAll, closed, catalogFresh;
+    internal Preferences Settings => themes.Settings;
+    internal void SaveSettings(Preferences settings) => themes.Save(settings);
+    internal bool ApplyingChange => applying;
+    internal bool UpdateHandoff => updateHandoff;
+    internal bool WorkInProgress => busy || updateChecking || checkingAll || !initialized || OwnedWindows.Cast<Window>().Any(w => w.IsVisible);
+    internal bool CanLaunchFromTray => !WorkInProgress && inspection is { Pending: null } && File.Exists(Path.Combine(target.Text, "Q-Sys Designer.exe"));
+    internal event Action<string>? UpdatesAvailable;
+
+    internal async Task Initialize(bool background)
+    {
+        if (smoke || initialized || closed) return; initialized = true;
+        MigrateKnownInstallations();
+        if (target.Items.Count == 0)
+        {
+            foreach (var path in Manager.Discover()) target.Items.Add(path);
+            string? saved = Settings.DesignerPath;
+            if (saved is not null && Directory.Exists(saved)) { if (!target.Items.Contains(saved)) target.Items.Add(saved); target.SelectedItem = saved; }
+            else if (target.Items.Count > 0) target.SelectedIndex = 0;
+        }
+        Refresh();
+        if (!background || Settings.BackgroundUpdates) await CheckAllUpdates();
+        var notice = AppUpdate.ConsumeNotice(); if (notice is not null) message.Text = notice;
+    }
+    internal async Task CheckAllUpdates()
+    {
+        if (closed || busy || updateChecking || checkingAll) return;
+        checkingAll = true;
+        try
+        {
+            await FetchCatalog(IsVisible);
+            if (closed) return;
+            await CheckManagerUpdate();
+            if (closed || !Settings.BackgroundUpdates) return;
+            var updates = new List<string>();
+            if (managerUpdate is not null) updates.Add("QMM " + managerUpdate.Version);
+            // Only announce a fresh, verified catalog for the selected Designer installation.
+            if (catalogFresh)
+                updates.AddRange(AvailableUpdates().Select(u => u.Item.Name + " " + u.Release.Version));
+            string[] fresh = notifications.TakeNew(updates);
+            if (fresh.Length > 0) UpdatesAvailable?.Invoke(string.Join(", ", fresh.Take(5)) + (fresh.Length > 5 ? " and more" : "") + ". Open QMM to review.");
+        }
+        finally { checkingAll = false; }
+    }
+    internal bool LaunchFromTray()
+    {
+        if (!CanLaunchFromTray) return false;
+        message.Text = ""; Launch(); return string.IsNullOrEmpty(message.Text);
+    }
+    internal void OpenUpdateNotification()
+    {
+        if (busy || OwnedWindows.Cast<Window>().Any(w => w.IsVisible)) return;
+        if (managerUpdate is not null) SettingsDialog(); else ReviewUpdates();
+    }
+    internal void ReviewCheckedUpdates()
+    {
+        if (busy || closed || OwnedWindows.Cast<Window>().Any(w => w.IsVisible)) return;
+        if (managerUpdate is null && AvailableUpdates().Length > 0) ReviewUpdates(); else SettingsDialog();
+    }
+
+    private void AddBackgroundSettings(Panel panel)
+    {
+        panel.Children.Add(Separator()); panel.Children.Add(Muted("STARTUP & BACKGROUND", new Thickness(0, 0, 0, 8)));
+        var startup = new StartupRegistration(Environment.ProcessPath!);
+        var start = new CheckBox { Content = "Start with Windows", Margin = new Thickness(0, 4, 0, 8), IsEnabled = !smoke && AppIdentity.IsExecutable(Environment.ProcessPath, AppContext.BaseDirectory) };
+        var feedback = new TextBlock { TextWrapping = TextWrapping.Wrap };
+        try { start.IsChecked = startup.Enabled; }
+        catch (Exception error) { start.IsEnabled = false; feedback.Text = "Could not read startup setting: " + error.Message; }
+        start.Click += (_, _) =>
+        {
+            try { startup.SetEnabled(start.IsChecked is true); feedback.Text = "Startup preference saved. Windows Startup apps can also disable it."; }
+            catch (Exception error) { start.IsChecked = start.IsChecked is not true; feedback.Text = "Could not save startup setting: " + error.Message; }
+        };
+        panel.Children.Add(start);
+        Add("Close window to system tray", Settings.CloseToTray, value => Settings with { CloseToTray = value });
+        Add("Check for updates in the background", Settings.BackgroundUpdates, value => Settings with { BackgroundUpdates = value });
+        panel.Children.Add(Muted("Startup opens quietly after sign-in. Background checks run every six hours for QMM and the selected Designer installation. Updates are installed only when you choose them. Use the tray menu to exit.", new Thickness(0, 4, 0, 8)));
+        panel.Children.Add(feedback);
+        void Add(string label, bool enabled, Func<bool, Preferences> change)
+        {
+            var box = new CheckBox { Content = label, IsChecked = enabled, Margin = new Thickness(0, 4, 0, 8), IsEnabled = !smoke };
+            box.Click += (_, _) =>
+            {
+                try { SaveSettings(change(box.IsChecked is true)); feedback.Text = "Preference saved."; }
+                catch (Exception error) { box.IsChecked = box.IsChecked is not true; feedback.Text = "Could not save preference: " + error.Message; }
+            };
+            panel.Children.Add(box);
+        }
+    }
+}

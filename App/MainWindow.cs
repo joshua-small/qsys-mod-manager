@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.IO;
+using System.Net.Http;
 using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
@@ -55,6 +56,7 @@ internal sealed partial class MainWindow : Window
     private readonly List<ModPackage> packages = new();
     private readonly Themes themes;
     private readonly OnlineCatalog online;
+    private readonly Func<CancellationToken, Task<ManagerRelease>> managerRelease;
     private CatalogSnapshot? snapshot;
     private Inspection? inspection;
     private CancellationTokenSource? network;
@@ -62,12 +64,13 @@ internal sealed partial class MainWindow : Window
     private string? hostHash, commonHash;
     private string libraryErrors = "";
 
-    internal MainWindow(string? dataDirectory = null)
+    internal MainWindow(string? dataDirectory = null, HttpClient? catalogClient = null, Func<CancellationToken, Task<ManagerRelease>>? managerRelease = null)
     {
         userData = dataDirectory ?? AppIdentity.UserData;
         Title = AppIdentity.Name + " · " + AppUpdate.CurrentVersion; Width = 1280; Height = 740; MinWidth = 680; MinHeight = 360;
-        Icon = System.Windows.Media.Imaging.BitmapDecoder.Create(new Uri("pack://application:,,,/Assets/qmm.ico"), System.Windows.Media.Imaging.BitmapCreateOptions.None, System.Windows.Media.Imaging.BitmapCacheOption.OnLoad).Frames.OrderByDescending(frame => frame.PixelWidth).First();
-        themes = new Themes(this, Path.Combine(userData, "settings.json")); online = new OnlineCatalog(userData);
+        Icon = System.Windows.Media.Imaging.BitmapDecoder.Create(new Uri("pack://application:,,,/" + typeof(MainWindow).Assembly.GetName().Name + ";component/Assets/qmm.ico"), System.Windows.Media.Imaging.BitmapCreateOptions.None, System.Windows.Media.Imaging.BitmapCacheOption.OnLoad).Frames.OrderByDescending(frame => frame.PixelWidth).First();
+        themes = new Themes(this, Path.Combine(userData, "settings.json")); online = new OnlineCatalog(userData, catalogClient);
+        this.managerRelease = managerRelease ?? LatestManagerRelease;
         SetResourceReference(BackgroundProperty, "Page"); SetResourceReference(ForegroundProperty, "Text"); FontFamily = new System.Windows.Media.FontFamily("Segoe UI"); FontSize = 14;
         try { online.LoadCached(); snapshot = new(DateTimeOffset.UtcNow, Catalog.Current, true); } catch { /* Invalid caches never expand trusted package permissions. */ }
         BuildLayout();
@@ -85,9 +88,9 @@ internal sealed partial class MainWindow : Window
         checkUpdate.Click += async (_, _) => await CheckManagerUpdate(); installUpdate.Click += async (_, _) => await InstallManagerUpdate();
         backups.Click += (_, _) => { try { var path = Path.Combine(target.Text, ".qds-mod-manager"); if (Directory.Exists(path)) Open(path); else message.Text = "Backups appear after your first change."; } catch (Exception e) { message.Text = e.Message; } };
         repositoryLink.RequestNavigate += (_, args) => { Open(args.Uri.AbsoluteUri); args.Handled = true; };
-        Closing += (_, args) => { if (applying && !updateHandoff) { args.Cancel = true; message.Text = "Please wait for the current change to finish."; } else network?.Cancel(); };
-        Closed += (_, _) => { themes.Dispose(); online.Dispose(); };
-        Loaded += async (_, _) => { if (!smoke) { MigrateKnownInstallations(); if (target.Items.Count == 0) { foreach (var path in Manager.Discover()) target.Items.Add(path); if (target.Items.Count > 0) target.SelectedIndex = 0; } Refresh(); await FetchCatalog(); await CheckManagerUpdate(); var notice = AppUpdate.ConsumeNotice(); if (notice is not null) message.Text = notice; } };
+        Closing += (_, args) => { if (applying && !updateHandoff) { args.Cancel = true; message.Text = "Please wait for the current change to finish."; } };
+        Closed += (_, _) => { closed = true; lifetime.Cancel(); network?.Cancel(); themes.Dispose(); online.Dispose(); };
+        Loaded += async (_, _) => await Initialize(false);
     }
     private static Button Button(string text) => new() { Content = text };
     private void SetButtonIcon(Button button, string icon)
@@ -115,6 +118,8 @@ internal sealed partial class MainWindow : Window
         try
         {
             LoadLibrary(); var engine = new Manager(target.Text); packages.AddRange(engine.CachedPackages().Where(p => !packages.Any(x => x.ArchiveHash == p.ArchiveHash))); inspection = engine.Inspect(packages); RefreshProfiles(); hostHash = Catalog.HostHash; commonHash = Catalog.CommonHash;
+            if (!smoke && themes.Settings.DesignerPath != inspection.Target)
+                try { themes.Save(themes.Settings with { DesignerPath = inspection.Target }); } catch (Exception error) { errors.Add("Could not remember Designer: " + error.Message); }
             compatibility.Text = inspection.Pending is not null ? "Recovery required" : inspection.Running ? "Designer is running" : "Ready to manage mods"; compatibility.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
             message.Text = inspection.Pending is not null ? "An interrupted change needs recovery before you can continue." : "";
             if (libraryErrors.Length > 0) message.Text += "\nSome local packages could not be read: " + libraryErrors;
@@ -197,10 +202,10 @@ internal sealed partial class MainWindow : Window
         Explain(undo, busy ? "Wait for the current operation to finish." : inspection is null ? "Choose a supported Designer installation." : inspection.Pending is not null ? "Recover the interrupted change from its saved transaction." : inspection.CanUndo ? "Restore the setup before the last change." : "There is no managed change to undo yet.");
     }
     private static void Explain(Button button, string help) { button.ToolTip = help; System.Windows.Automation.AutomationProperties.SetHelpText(button, help); }
-    private async Task FetchCatalog()
+    private async Task FetchCatalog(bool artwork = true)
     {
-        if (busy) return; busy = true; using var cancellation = new CancellationTokenSource(); network = cancellation; catalogStatus.Text = "Checking available mods…"; Buttons();
-        try { snapshot = await online.Fetch(cancellation.Token); presentation = await online.FetchPresentation(cancellation.Token) ?? PresentationDocument.Bundled(); await LoadThumbnails(cancellation.Token); catalogStatus.Text = snapshot.Offline ? "Offline · saved catalog from " + snapshot.FetchedUtc.ToLocalTime().ToString("g") : "Catalog up to date · " + snapshot.Document.Mods.Length + " mods"; }
+        if (busy) return; catalogFresh = false; busy = true; using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token); network = cancellation; catalogStatus.Text = "Checking available mods…"; Buttons();
+        try { snapshot = await online.Fetch(cancellation.Token); catalogFresh = !snapshot.Offline; presentation = await online.FetchPresentation(cancellation.Token) ?? PresentationDocument.Bundled(); if (artwork) await LoadThumbnails(cancellation.Token); catalogStatus.Text = snapshot.Offline ? "Offline · saved catalog from " + snapshot.FetchedUtc.ToLocalTime().ToString("g") : "Catalog up to date · " + snapshot.Document.Mods.Length + " mods"; }
         catch (OperationCanceledException) { catalogStatus.Text = "Catalog refresh canceled."; }
         catch (Exception error) { catalogStatus.Text = "Catalog unavailable. Local packages still work. " + error.GetBaseException().Message; }
         finally { busy = false; network = null; Refresh(); Filter(); Buttons(); }
@@ -302,11 +307,15 @@ internal sealed partial class MainWindow : Window
         if (busy || updateChecking) return; updateChecking = true; Buttons(); updateStatus.Text = "Checking for a Q-SYS Mod Manager update…";
         try
         {
-            using var client = new ManagerReleaseClient(); var release = await client.Latest(default);
+            var release = await managerRelease(lifetime.Token);
             ShowManagerRelease(release);
         }
         catch (Exception error) { managerUpdate = null; installUpdate.Visibility = Visibility.Collapsed; updateStatus.Text = "Couldn't check for updates. " + error.GetBaseException().Message; }
         finally { updateChecking = false; Buttons(); }
+    }
+    private static async Task<ManagerRelease> LatestManagerRelease(CancellationToken cancellation)
+    {
+        using var client = new ManagerReleaseClient(); return await client.Latest(cancellation);
     }
     private void ShowManagerRelease(ManagerRelease release)
     {

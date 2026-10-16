@@ -75,7 +75,7 @@ internal sealed partial class MainWindow
         catalogStatus.FontSize = 11; catalogStatus.Margin = new Thickness(0, 2, 0, 0); side.Children.Add(catalogStatus);
         side.Children.Add(SectionHeading("Tools")); side.Children.Add(import); side.Children.Add(undo);
         side.Children.Add(migrate); migrate.Click += async (_, _) => await MigrateSchematicTools();
-        var settings = Button("Settings & diagnostics"); SetButtonIcon(settings, "Settings"); settings.Click += (_, _) => Settings(); utilityButtons.Add(settings); side.Children.Add(settings);
+        var settings = Button("Settings & diagnostics"); SetButtonIcon(settings, "Settings"); settings.Click += (_, _) => SettingsDialog(); utilityButtons.Add(settings); side.Children.Add(settings);
         var help = Button("Help & documentation"); help.Click += (_, _) => Open("https://github.com/joshua-small/qsys-mod-manager#readme"); side.Children.Add(help);
         foreach (var (button, icon) in new[] { (browse, "FolderOpen"), (refresh, "ArrowClockwise"), (refreshCatalog, "ArrowClockwise"), (import, "ArrowImport"), (undo, "ArrowUndo"), (backups, "Archive"), (checkUpdate, "ArrowSync"), (install, "ArrowDownload"), (adopt, "Settings"), (remove, "Delete"), (installUpdate, "ArrowDownload") }) SetButtonIcon(button, icon);
         checkUpdate.Content = "Check manager update"; installUpdate.Visibility = Visibility.Collapsed; updateStatus.Text = AppIdentity.Name + " " + AppUpdate.CurrentVersion;

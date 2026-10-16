@@ -1,6 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup><OutputType>WinExe</OutputType><TargetFramework>net10.0-windows</TargetFramework><UseWPF>true</UseWPF><EnableWindowsTargeting>true</EnableWindowsTargeting><RuntimeIdentifier>win-x64</RuntimeIdentifier><SelfContained>false</SelfContained><Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings><AssemblyName>Q-SYS Mod Manager</AssemblyName><Product>Q-SYS Mod Manager</Product><AssemblyTitle>Q-SYS Mod Manager</AssemblyTitle><Description>Find and manage mods for Q-SYS Designer.</Description><Version>0.8.1</Version></PropertyGroup>
+  <PropertyGroup><OutputType>WinExe</OutputType><TargetFramework>net10.0-windows</TargetFramework><UseWPF>true</UseWPF><EnableWindowsTargeting>true</EnableWindowsTargeting><RuntimeIdentifier>win-x64</RuntimeIdentifier><SelfContained>false</SelfContained><Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings><AssemblyName>Q-SYS Mod Manager</AssemblyName><Product>Q-SYS Mod Manager</Product><AssemblyTitle>Q-SYS Mod Manager</AssemblyTitle><Description>Find and manage mods for Q-SYS Designer.</Description><Version>0.9.0</Version></PropertyGroup>
   <ItemGroup><ProjectReference Include="../Core/QdsModManager.Core.csproj" /></ItemGroup>
+  <PropertyGroup><UseWindowsForms>true</UseWindowsForms></PropertyGroup>
+  <ItemGroup><Using Remove="System.Drawing" /><Using Remove="System.Windows.Forms" /></ItemGroup>
+  <ItemGroup><InternalsVisibleTo Include="QdsModManager.UiTests" /></ItemGroup>
   <PropertyGroup Condition="'$(LegacyHost)' == 'true'"><AssemblyName>QDS Mod Manager</AssemblyName></PropertyGroup>
   <PropertyGroup><ApplicationIcon>Assets/qmm.ico</ApplicationIcon></PropertyGroup>
   <ItemGroup><Resource Include="Assets/qmm.ico" /></ItemGroup>

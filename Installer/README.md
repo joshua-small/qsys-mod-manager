@@ -34,6 +34,8 @@ Run lifecycle validation **only on a disposable Windows machine**. With a signed
 
 The build does not publish a release. Publish only the final setup and portable ZIP after validation; do not redistribute an intermediate payload or unsigned CI build as a signed release.
 
+Tray mode retains the application mutex while the window is hidden; use **Exit** in the tray before setup or uninstall. Startup is opt-in per user through `HKCU\Software\Microsoft\Windows\CurrentVersion\Run\QsysModManager`, with a quoted executable path and `--background`. Repair/upgrades retain it. Uninstall removes exact matching values in loaded user hives, including other signed-in users, and preserves registrations belonging to other portable copies. Unloaded user hives are not mounted: a signed-out account can retain a stale entry after machine-wide uninstall and should remove it in Windows Startup apps. StartupApproved is owned by Windows and is never rewritten by QMM.
+
 The previous low-level `-SigningCommand` option is replaced by `-Sign`; manual pre-signing is no longer required.
 
 References: [Microsoft signing integration](https://learn.microsoft.com/en-us/azure/artifact-signing/how-to-signing-integrations), [Inno SignTool](https://jrsoftware.org/ishelp/topic_setup_signtool.htm), [signed uninstallers](https://jrsoftware.org/ishelp/topic_setup_signeduninstaller.htm).
