@@ -24,7 +24,7 @@ internal sealed class TrayLifetime : IDisposable
         icon = new Icon(stream);
         tray = new Forms.NotifyIcon { Icon = icon, Text = AppIdentity.Name, ContextMenuStrip = menu };
         menu.Items.Add("Open QMM", null, (_, _) => Show());
-        var check = menu.Items.Add("Check for updates", null, async (_, _) => { Show(); await window.CheckAllUpdates(); });
+        var check = menu.Items.Add("Check for updates", null, async (_, _) => { Show(); await window.CheckAllUpdates(); window.ReviewCheckedUpdates(); });
         var launch = menu.Items.Add("Launch Designer", null, (_, _) => { if (!window.LaunchFromTray()) Show(); });
         menu.Items.Add(new Forms.ToolStripSeparator());
         var exit = menu.Items.Add("Exit", null, (_, _) => Exit());

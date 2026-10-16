@@ -68,8 +68,8 @@ internal static class TrayChecks
                 tray.Show(); await Task.Delay(50);
                 Check(window.IsVisible && window.ShowInTaskbar, "Open QMM restores the main window and taskbar entry");
                 Check(managerChecks == 1, "Showing the window does not repeat initialization");
-                var themes = (Themes)typeof(MainWindow).GetField("themes", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(window)!;
-                themes.Select(Appearance.Dark);
+                var theme = (System.Windows.Controls.ComboBox)typeof(MainWindow).GetField("theme", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(window)!;
+                theme.SelectedIndex = 2;
                 Check(window.Settings.CloseToTray && window.Settings.DesignerPath == @"C:\Remembered Designer", "Theme changes preserve background preferences and remembered Designer");
                 using var download = new CancellationTokenSource();
                 var network = typeof(MainWindow).GetField("network", BindingFlags.Instance | BindingFlags.NonPublic)!;
@@ -109,7 +109,7 @@ internal static class TrayChecks
                     bitmap.Render(settings); var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder(); encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(bitmap));
                     using var image = File.Create(Path.Combine(output, "background-settings.png")); encoder.Save(image); settings.Close();
                 });
-                window.OpenUpdateSettings();
+                window.ReviewCheckedUpdates();
                 bool closed = false; window.Closed += (_, _) => closed = true;
                 tray.Exit(); Check(closed && !tray.Visible, "Explicit Exit closes the hidden-capable window and removes its tray icon");
                 File.WriteAllText(Path.Combine(output, "checks.json"), JsonSerializer.Serialize(checks, new JsonSerializerOptions { WriteIndented = true }));
