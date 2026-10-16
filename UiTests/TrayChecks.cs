@@ -98,6 +98,7 @@ internal static class TrayChecks
                 applying.SetValue(window, false);
                 var dialog = new Window { Owner = window, Left = -32000, Top = -32000, ShowActivated = false, ShowInTaskbar = false };
                 dialog.Show(); int beforeDialog = managerChecks; await tray.Tick(now.AddHours(8));
+                window.OpenUpdateNotification(); Check(window.OwnedWindows.Count == 1, "Notification clicks preserve an existing modal dialog");
                 Check(managerChecks == beforeDialog, "A preview/settings dialog defers background checks"); dialog.Close();
                 await tray.Tick(now.AddHours(8).AddMinutes(1)); Check(managerChecks == beforeDialog + 1, "Deferred checks resume after the dialog closes");
                 window.Close(); tray.Show(); Check(window.IsVisible, "Repeated hide/open preserves a usable window");

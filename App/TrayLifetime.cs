@@ -30,7 +30,7 @@ internal sealed class TrayLifetime : IDisposable
         var exit = menu.Items.Add("Exit", null, (_, _) => Exit());
         menu.Opening += (_, _) => { check.Enabled = !window.WorkInProgress; launch.Enabled = window.CanLaunchFromTray; exit.Enabled = !window.ApplyingChange; };
         tray.MouseClick += (_, e) => { if (e.Button == Forms.MouseButtons.Left) Show(); };
-        tray.BalloonTipClicked += (_, _) => { Show(); window.OpenUpdateSettings(); };
+        tray.BalloonTipClicked += (_, _) => { Show(); window.OpenUpdateNotification(); };
         window.Closing += Closing;
         window.Closed += Closed;
         window.UpdatesAvailable += Notify;

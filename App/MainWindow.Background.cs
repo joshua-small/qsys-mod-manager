@@ -57,7 +57,12 @@ internal sealed partial class MainWindow
         if (!CanLaunchFromTray) return false;
         message.Text = ""; Launch(); return string.IsNullOrEmpty(message.Text);
     }
-    internal void OpenUpdateSettings() { if (!busy) SettingsDialog(); }
+    internal void OpenUpdateSettings() { if (!busy && !OwnedWindows.Cast<Window>().Any(w => w.IsVisible)) SettingsDialog(); }
+    internal void OpenUpdateNotification()
+    {
+        if (busy || OwnedWindows.Cast<Window>().Any(w => w.IsVisible)) return;
+        if (managerUpdate is not null) SettingsDialog(); else ReviewUpdates();
+    }
 
     private void AddBackgroundSettings(Panel panel)
     {

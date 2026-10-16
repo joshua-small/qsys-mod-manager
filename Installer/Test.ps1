@@ -115,13 +115,14 @@ try {
         RunSetup 'downgrade-rejected' @() $false
         Check ([bool](Select-String -LiteralPath (Join-Path $output 'downgrade-rejected.log') -SimpleMatch 'A newer Q-SYS Mod Manager is already installed')) 'Downgrade reports the newer installed version'
     } finally { [IO.File]::WriteAllBytes($appDll, $original) }
-    'damaged file' | Set-Content -LiteralPath (Join-Path $target 'README.md')
-    RunSetup 'repair'
-    $null = VerifyPayload
     $startupKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
     Check ($null -eq (Get-ItemProperty -LiteralPath $startupKey -Name QsysModManager -ErrorAction SilentlyContinue)) 'No pre-existing QMM startup registration on disposable runner'
     New-Item -Path $startupKey -Force | Out-Null
     New-ItemProperty -LiteralPath $startupKey -Name QsysModManager -Value ('"' + (Join-Path $target 'Q-SYS Mod Manager.exe') + '" --background') -PropertyType String -Force | Out-Null
+    'damaged file' | Set-Content -LiteralPath (Join-Path $target 'README.md')
+    RunSetup 'repair'
+    $null = VerifyPayload
+    Check ((Get-ItemPropertyValue -LiteralPath $startupKey -Name QsysModManager) -eq ('"' + (Join-Path $target 'Q-SYS Mod Manager.exe') + '" --background')) 'Repair preserves startup registration'
     Uninstall 'fresh-uninstall'
     Check ($null -eq (Get-ItemProperty -LiteralPath $startupKey -Name QsysModManager -ErrorAction SilentlyContinue)) 'Uninstall removes this installation startup entry'
     foreach ($file in $preserve) { Check ((Get-Content -LiteralPath (Join-Path $target $file) -Raw).Trim() -eq 'preserve this file') ("Uninstall preserves " + $file) }
