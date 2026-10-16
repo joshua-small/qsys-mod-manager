@@ -19,6 +19,10 @@ The sidebar groups Designer installation, Profile, Mod updates and Tools. **New 
 
 **Settings & diagnostics** contains Light, Dark and Follow System themes, copying the mod list, opening backups and exporting a local diagnostic report. Reports include installation paths, manager/build identity, managed state, compatibility and operation errors; nothing is uploaded.
 
+**Settings & diagnostics → Startup & background** adds optional **Start with Windows** and **Close window to system tray**. Both are off until you enable them. Startup opens QMM quietly after you sign in; the tray icon beside the clock provides **Open QMM**, **Check for updates**, **Launch Designer** and **Exit**. Opening QMM again restores the running window. Closing to tray keeps work running; Exit ends QMM after any installation finishes. Use Exit before running Setup or uninstalling. Installed mods work inside Designer even when QMM is closed.
+
+**Check for updates in the background** is on by default while QMM is running. It checks on startup and every six hours for manager updates and compatible mod updates in the last selected Designer installation. Each newly available version is announced once per session; Windows notification settings can suppress the popup. Checks never install updates automatically. Turn this option off to stop periodic checks and tray notifications; opening the main app and manual checks remain available. Startup uses your Windows account, needs no administrator permission, and can also be disabled in Windows Startup apps. Portable users should enable startup again after moving QMM to a new folder.
+
 Manager self-updates are separate from mod updates. Q-SYS Mod Manager checks for its own update when it opens; **Settings & diagnostics → Check manager update** checks again. Choose **Install**, then **Update & restart** and allow the administrator prompt. Settings and mods are kept; Designer can stay open. Profile/state format and transaction contracts are described in [Profiles](docs/PROFILES.md).
 
 Currently supports the compatible Q-SYS Designer 10.5 build on Windows. These are unofficial Designer extensions; nothing is installed on a Core.

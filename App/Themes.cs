@@ -26,8 +26,9 @@ internal sealed class Themes : IDisposable
     }
     internal void Select(Appearance appearance, bool persist = true)
     {
-        var next = new Preferences(appearance); if (persist) next.Save(path); Settings = next; Apply();
+        var next = Settings with { Theme = appearance }; if (persist) next.Save(path); Settings = next; Apply();
     }
+    internal void Save(Preferences settings) { settings.Save(path); Settings = settings; }
     private void SystemChanged(object sender, UserPreferenceChangedEventArgs args) => owner.Dispatcher.BeginInvoke(Apply);
     private void Apply()
     {

@@ -88,6 +88,23 @@ try {
         Check (-not $app.HasExited -and $app.MainWindowTitle -like 'Q-SYS Mod Manager*') 'Installed app starts successfully'
         RunSetup 'running-app-rejected' @() $false
     } finally { if (-not $app.HasExited) { $null = $app.CloseMainWindow(); if (-not $app.WaitForExit(15000)) { throw 'Test app did not close' } } }
+    $backgroundApp = Start-Process -FilePath (Join-Path $target 'Q-SYS Mod Manager.exe') -ArgumentList '--background' -WindowStyle Hidden -PassThru
+    try {
+        Start-Sleep -Seconds 3
+        $backgroundApp.Refresh()
+        Check (-not $backgroundApp.HasExited -and $backgroundApp.MainWindowHandle -eq 0) 'Background startup keeps the app alive without a main window'
+        RunSetup 'background-app-rejected' @() $false
+        $duplicate = Start-Process -FilePath (Join-Path $target 'Q-SYS Mod Manager.exe') -ArgumentList '--background' -WindowStyle Hidden -PassThru
+        Check ($duplicate.WaitForExit(10000) -and $duplicate.ExitCode -eq 0) 'Duplicate background startup exits quietly'
+        $backgroundApp.Refresh()
+        Check ($backgroundApp.MainWindowHandle -eq 0) 'Duplicate background startup does not open a window'
+        $reopen = Start-Process -FilePath (Join-Path $target 'Q-SYS Mod Manager.exe') -WindowStyle Hidden -PassThru
+        Check ($reopen.WaitForExit(10000) -and $reopen.ExitCode -eq 0) 'Normal second launch activates the running instance'
+        for ($i=0; $i -lt 100; $i++) { $backgroundApp.Refresh(); if ($backgroundApp.MainWindowHandle -ne 0) { break }; Start-Sleep -Milliseconds 100 }
+        Check ($backgroundApp.MainWindowHandle -ne 0) 'Background instance restores its main window'
+    } finally {
+        if (-not $backgroundApp.HasExited) { $null = $backgroundApp.CloseMainWindow(); if (-not $backgroundApp.WaitForExit(15000)) { throw 'Background test app did not close' } }
+    }
     $locked = [IO.File]::Open((Join-Path $target 'Q-SYS Mod Manager.exe'), [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::None)
     try { RunSetup 'locked-file-rejected' @() $false } finally { $locked.Dispose() }
     $appDll = Join-Path $target 'Q-SYS Mod Manager.dll'
@@ -101,7 +118,12 @@ try {
     'damaged file' | Set-Content -LiteralPath (Join-Path $target 'README.md')
     RunSetup 'repair'
     $null = VerifyPayload
+    $startupKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+    Check ($null -eq (Get-ItemProperty -LiteralPath $startupKey -Name QsysModManager -ErrorAction SilentlyContinue)) 'No pre-existing QMM startup registration on disposable runner'
+    New-Item -Path $startupKey -Force | Out-Null
+    New-ItemProperty -LiteralPath $startupKey -Name QsysModManager -Value ('"' + (Join-Path $target 'Q-SYS Mod Manager.exe') + '" --background') -PropertyType String -Force | Out-Null
     Uninstall 'fresh-uninstall'
+    Check ($null -eq (Get-ItemProperty -LiteralPath $startupKey -Name QsysModManager -ErrorAction SilentlyContinue)) 'Uninstall removes this installation startup entry'
     foreach ($file in $preserve) { Check ((Get-Content -LiteralPath (Join-Path $target $file) -Raw).Trim() -eq 'preserve this file') ("Uninstall preserves " + $file) }
     if ($settingsHash) { Check ((Get-FileHash -LiteralPath $settings).Hash -eq $settingsHash) 'User settings remain unchanged' }
     # Upgrade an actual older, differently named portable release in place.
@@ -112,7 +134,10 @@ try {
     $null = VerifyPayload
     Check (-not (Test-Path -LiteralPath (Join-Path $target 'QDS Mod Manager.dll'))) 'Legacy assembly name removed'
     foreach ($file in $preserve) { Check ((Get-Content -LiteralPath (Join-Path $target $file) -Raw).Trim() -eq 'preserve this file') ("Upgrade preserves " + $file) }
+    New-ItemProperty -LiteralPath $startupKey -Name QsysModManager -Value '"C:\Other QMM\Q-SYS Mod Manager.exe" --background' -PropertyType String -Force | Out-Null
     Uninstall 'upgraded-uninstall'
+    Check ((Get-ItemPropertyValue -LiteralPath $startupKey -Name QsysModManager) -eq '"C:\Other QMM\Q-SYS Mod Manager.exe" --background') 'Uninstall preserves another copy startup registration'
+    Remove-ItemProperty -LiteralPath $startupKey -Name QsysModManager
     # Preserve the unique test folder and receipts for inspection; never recurse-delete.
     [ordered]@{status='passed';target=$target;runtimePresentBefore=$runtimeBefore;checks=$checks} | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $output 'result.json')
 } catch {

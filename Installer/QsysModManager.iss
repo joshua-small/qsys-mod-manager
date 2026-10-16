@@ -198,3 +198,24 @@ begin
         RaiseException('Could not remove an obsolete manager file. Close Q-SYS Mod Manager and run Setup again.');
   end;
 end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  Users: TArrayOfString;
+  I: Integer;
+  Key, Command, Expected: String;
+begin
+  if CurUninstallStep <> usUninstall then Exit;
+  Expected := '"' + ExpandConstant('{app}\Q-SYS Mod Manager.exe') + '" --background';
+  { A machine install can be used by several signed-in users. Only remove this
+    installation's exact value; portable copies and other startup entries stay.
+    Unloaded user hives are deliberately not mounted or changed. }
+  if RegGetSubkeyNames(HKU, '', Users) then
+    for I := 0 to GetArrayLength(Users) - 1 do begin
+      Key := Users[I] + '\Software\Microsoft\Windows\CurrentVersion\Run';
+      if RegQueryStringValue(HKU, Key, 'QsysModManager', Command) and
+         (CompareText(Command, Expected) = 0) then
+        if not RegDeleteValue(HKU, Key, 'QsysModManager') then
+          Log('Could not remove the QMM startup entry for ' + Users[I]);
+    end;
+end;

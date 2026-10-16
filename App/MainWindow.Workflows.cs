@@ -193,12 +193,13 @@ internal sealed partial class MainWindow
         catch (Exception error) { RecordError(error); }
     }
     private string ModList() => AppIdentity.Name + " " + AppUpdate.CurrentVersion + "\n" + target.Text + "\nProfile: " + inspection?.Profile?.Name + "\nManaged mods: " + (inspection?.Suspended is true ? "off" : "on") + "\n" + string.Join("\n", inspection?.Mods.Select(m => m.Name + " " + m.Version + " · " + m.Status) ?? []) + "\nUnmanaged files: " + string.Join(", ", inspection?.Unmanaged ?? []);
-    private void Settings()
+    private void SettingsDialog()
     {
         if (busy) return;
         var dialog = new Window { Owner = this, Title = "Settings & diagnostics", Width = Math.Min(610, ActualWidth), Height = Math.Min(560, ActualHeight), WindowStartupLocation = WindowStartupLocation.CenterOwner };
         var panel = new StackPanel { Margin = new Thickness(22) }; dialog.Content = new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
         panel.Children.Add(new TextBlock { Text = "Settings & diagnostics", FontSize = 22, FontWeight = FontWeights.SemiBold }); panel.Children.Add(Muted("Appearance", new Thickness(0, 18, 0, 8))); panel.Children.Add(theme);
+        AddBackgroundSettings(panel);
         panel.Children.Add(Separator()); panel.Children.Add(Muted("MANAGER UPDATE", new Thickness(0, 0, 0, 8))); panel.Children.Add(updateStatus); panel.Children.Add(checkUpdate); panel.Children.Add(installUpdate);
         panel.Children.Add(Separator()); panel.Children.Add(backups); var copy = Button("Copy mod list"); panel.Children.Add(copy); copy.Click += (_, _) => { try { Clipboard.SetText(ModList()); message.Text = "Mod list copied."; } catch (Exception e) { RecordError(e); } };
         var export = Button("Export local diagnostic report…"); panel.Children.Add(export); export.Click += (_, _) =>

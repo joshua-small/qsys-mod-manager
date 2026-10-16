@@ -41,6 +41,12 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           & './artifacts/ui-dotnet/bin/QdsModManager.UiTests/release_win-x64/QdsModManager.UiTests.exe' artifacts/ui-colors
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          & './artifacts/ui-dotnet/bin/QdsModManager.UiTests/release_win-x64/QdsModManager.UiTests.exe' --tray artifacts/tray-checks
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          foreach ($scenario in @('ordinary','update','session','download')) {
+            & './artifacts/ui-dotnet/bin/QdsModManager.UiTests/release_win-x64/QdsModManager.UiTests.exe' --tray-shutdown $scenario "artifacts/tray-checks/$scenario"
+            if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          }
       - name: Verify grouped profiles, packages and recovery
         shell: pwsh
         run: |
@@ -146,5 +152,6 @@ jobs:
             artifacts/release/*.txt
             artifacts/validation/**
             artifacts/ui-colors/**
+            artifacts/tray-checks/**
             artifacts/release/signed-uninstaller/*.exe
           if-no-files-found: error

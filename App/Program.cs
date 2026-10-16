@@ -34,8 +34,11 @@ internal static class Program
             using (var receipt = new FileStream(args[3], FileMode.CreateNew, FileAccess.Write, FileShare.None)) { receipt.Write(Data.Bytes(result)); receipt.Flush(true); }
             return result.Success ? 0 : 1;
         }
-        using var uiMutex = new Mutex(false, @"Local\QsysModManager.UserInterface", out bool firstWindow);
-        if (args.Length == 0 && !firstWindow) { MessageBox.Show("Q-SYS Mod Manager is already open.", AppIdentity.Name); return 0; }
+        bool isolated = args.Length == 5 && args[0] is ("--smoke" or "--preview");
+        bool background = args.Length == 1 && args[0] == "--background";
+        if (!isolated && !background && args.Length != 0) return 2;
+        using var instance = isolated ? null : new UserInstance();
+        if (instance is { IsFirst: false }) { if (!background) instance.Activate(); return 0; }
         var app = new Application { ShutdownMode = ShutdownMode.OnMainWindowClose };
         var window = new MainWindow(args.Length == 5 && args[0] is ("--smoke" or "--preview") ? Path.Combine(Path.GetFullPath(args[2]), "user-data") : null);
         if (args.Length == 5 && args[0] is ("--smoke" or "--preview"))
@@ -89,8 +92,19 @@ internal static class Program
                 finally { window.Close(); }
             };
         }
-        else if (args.Length != 0) return 2;
-        else { try { Shortcuts.Refresh(); } catch { /* A locked shortcut must not prevent startup. */ } }
+        else
+        {
+            try { Shortcuts.Refresh(); } catch { /* A locked shortcut must not prevent startup. */ }
+            app.MainWindow = window; app.ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            using var tray = new TrayLifetime(app, window);
+            instance!.Listen(app.Dispatcher, tray.Show);
+            app.Startup += async (_, _) =>
+            {
+                if (!background) tray.Show();
+                await window.Initialize(background);
+            };
+            app.Run(); return 0;
+        }
         app.Run(window); return 0;
     }
     private static void ValidateRequest(string request, string result)
