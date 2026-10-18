@@ -39,3 +39,7 @@ Tray mode retains the application mutex while the window is hidden; use **Exit**
 The previous low-level `-SigningCommand` option is replaced by `-Sign`; manual pre-signing is no longer required.
 
 References: [Microsoft signing integration](https://learn.microsoft.com/en-us/azure/artifact-signing/how-to-signing-integrations), [Inno SignTool](https://jrsoftware.org/ishelp/topic_setup_signtool.htm), [signed uninstallers](https://jrsoftware.org/ishelp/topic_setup_signeduninstaller.htm).
+
+### Portable migration test fixture
+
+CI builds `Installer/Fixtures/LegacyPortable` with `python Installer/build_legacy_fixture.py <fresh-output>` and passes its ZIP to `Installer/Test.ps1`. This inert executable/assembly uses the old `QDS Mod Manager` filenames and an older version; it is never launched. The test verifies the full old file set is present, upgrades it, verifies every installed payload hash, checks removal of all four old filenames, and preserves unrelated user files. It tests migration layout and installer behavior, not historical application runtime behavior. No historical release download is required. Fixture bytes must not be uploaded as product release assets.

@@ -52,6 +52,8 @@ jobs:
           python-version: '3.12'
       - name: Verify grouped profiles, packages and recovery
         run: python Tests/run_offline.py artifacts/offline-tests
+      - name: Build synthetic legacy installer fixture
+        run: python Installer/build_legacy_fixture.py artifacts/legacy-fixture
       - name: Install pinned compiler
         shell: pwsh
         run: |
@@ -121,10 +123,8 @@ jobs:
             Get-Content "$env:RUNNER_TEMP\runtime-removal.log" -Tail 150
             throw "Runner still has compatible runtimes: $ready"
           }
-          gh release download v0.3.1 --repo joshua-small/qsys-mod-manager --pattern QDS-Mod-Manager-0.3.1-win-x64.zip --dir artifacts/old
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
           $setup = Get-ChildItem artifacts/release/*Setup*.exe | Select-Object -First 1
-          ./Installer/Test.ps1 -Setup $setup.FullName -LegacyZip artifacts/old/QDS-Mod-Manager-0.3.1-win-x64.zip -NativeChecks artifacts/checks/NativeChecks.exe -OutputDirectory artifacts/validation -RequireSigned:($env:QMM_SIGN_BUILD -eq 'true')
+          ./Installer/Test.ps1 -Setup $setup.FullName -LegacyZip artifacts/legacy-fixture/legacy-portable-fixture.zip -NativeChecks artifacts/checks/NativeChecks.exe -OutputDirectory artifacts/validation -RequireSigned:($env:QMM_SIGN_BUILD -eq 'true')
           if (-not (Select-String -Path artifacts/validation/fresh-install.log -SimpleMatch 'Installing bundled Microsoft .NET Desktop Runtime')) { throw 'Bundled runtime installation was not exercised.' }
       - name: Upload installer, portable downloads, and receipts
         if: always()

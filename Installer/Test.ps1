@@ -127,13 +127,21 @@ try {
     Check ($null -eq (Get-ItemProperty -LiteralPath $startupKey -Name QsysModManager -ErrorAction SilentlyContinue)) 'Uninstall removes this installation startup entry'
     foreach ($file in $preserve) { Check ((Get-Content -LiteralPath (Join-Path $target $file) -Raw).Trim() -eq 'preserve this file') ("Uninstall preserves " + $file) }
     if ($settingsHash) { Check ((Get-FileHash -LiteralPath $settings).Hash -eq $settingsHash) 'User settings remain unchanged' }
-    # Upgrade an actual older, differently named portable release in place.
+    # Exercise migration from an older-version, legacy-named portable layout.
+    # CI uses an inert source-built fixture; this is not old application runtime acceptance.
     Expand-Archive -LiteralPath $LegacyZip -DestinationPath $target
     $old = Get-ChildItem -LiteralPath $target -Filter '*.dll' | Where-Object Name -in @('QDS Mod Manager.dll','Q-SYS Mod Manager.dll') | Select-Object -First 1
-    Check ($null -ne $old) 'Real legacy release extracted'
+    Check ($null -ne $old -and $old.Name -eq 'QDS Mod Manager.dll') 'Legacy-named portable assembly extracted'
+    $legacyIdentity = [Reflection.AssemblyName]::GetAssemblyName($old.FullName)
+    Check ($legacyIdentity.Name -eq 'QDS Mod Manager' -and $legacyIdentity.Version -lt [version]$manifest.version) 'Legacy fixture has the old assembly name and an older version'
+    foreach ($suffix in @('.exe','.dll','.deps.json','.runtimeconfig.json')) {
+        Check (Test-Path -LiteralPath (Join-Path $target ('QDS Mod Manager' + $suffix))) ("Legacy portable layout includes " + $suffix)
+    }
     RunSetup 'portable-upgrade'
     $null = VerifyPayload
-    Check (-not (Test-Path -LiteralPath (Join-Path $target 'QDS Mod Manager.dll'))) 'Legacy assembly name removed'
+    foreach ($suffix in @('.exe','.dll','.deps.json','.runtimeconfig.json')) {
+        Check (-not (Test-Path -LiteralPath (Join-Path $target ('QDS Mod Manager' + $suffix)))) ("Legacy portable file removed: " + $suffix)
+    }
     foreach ($file in $preserve) { Check ((Get-Content -LiteralPath (Join-Path $target $file) -Raw).Trim() -eq 'preserve this file') ("Upgrade preserves " + $file) }
     New-ItemProperty -LiteralPath $startupKey -Name QsysModManager -Value '"C:\Other QMM\Q-SYS Mod Manager.exe" --background' -PropertyType String -Force | Out-Null
     Uninstall 'upgraded-uninstall'
