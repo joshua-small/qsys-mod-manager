@@ -12,7 +12,12 @@ var geometry = packages.Where(p => p.Manifest.Id == "automatic-geometry").MaxBy(
 var index = Data.Read<CatalogDocument>(File.ReadAllBytes("catalog/index.json"));
 var presentation = PresentationDocument.Bundled();
 string repository = OnlineCatalog.Repository("schematic-tools"), commit = new('a', 40), tag = "v" + Version.Parse(package.Manifest.Version).ToString(3);
-var release = index.Mods.Single(m => m.Id == "schematic-tools").Releases.Single(r => r.Version == package.Manifest.Version);
+// A synthetic release pin keeps contract tests independent of historical downloads.
+// Only this in-memory test index changes; production catalog files remain untouched.
+var release = new CatalogRelease(package.Manifest.Version, "10.5", Catalog.HostHash, Catalog.CommonHash,
+    "https://github.com/" + repository + "/releases/download/" + tag + "/fixture.qdsmod", package.ArchiveHash, new FileInfo(package.Path).Length);
+index = index with { Mods = index.Mods.Select(m => m.Id != package.Manifest.Id ? m : m with
+    { Releases = m.Releases.Where(r => r.Version != release.Version).Append(release).ToArray() }).ToArray() };
 var content = new ModContent(1, "schematic-tools", "Schematic Tools", "Source-owned description", "joshua-small", "catalog/icon.ico", "https://github.com/" + repository);
 var icon = File.ReadAllBytes("App/Assets/qmm.ico");
 File.WriteAllBytes(Path.Combine(fixture, "catalog/mod.json"), Data.Bytes(content));
@@ -23,7 +28,7 @@ var checks = new List<string>();
 void Check(bool value, string label) { if (!value) throw new Exception(label); checks.Add(label); }
 void Reject(Action action, string label) { try { action(); } catch { checks.Add(label); return; } throw new Exception("Accepted: " + label); }
 async Task RejectAsync(Func<Task> action, string label) { try { await action(); } catch { checks.Add(label); return; } throw new Exception("Accepted: " + label); }
-Check(record.Release == release && record.ReleaseNotes == "Verbatim author release notes.", "Real package verified; notes copied verbatim");
+Check(record.Release == release && record.ReleaseNotes == "Verbatim author release notes.", "Synthetic package verified; notes normalized by the publishing contract");
 Check(Contract.ThumbnailUrl(record).Contains("/" + commit + "/"), "Artwork URL is pinned to content commit");
 Check(Catalog.Mod("schematic-tools").Description == index.Mods.Single(m => m.Id == "schematic-tools").Description, "Offline description comes from generated catalog");
 Reject(() => Contract.Validate(record with { Repository = "attacker/repo" }), "Unapproved repository rejected");
@@ -114,6 +119,7 @@ handler.Get = uri =>
     return Response(icon);
 };
 Check((await github.Collect(Path.Combine(fixture, "new-release"), new(1, []))).Single() == record, "A new release still verifies source, artwork and the full package");
+Check(await github.Approved(receipt, Path.Combine(fixture, "approved-release")) == record, "Approved packages use the supplied transport and keep it alive after Collect");
 File.WriteAllBytes(Path.Combine(fixture, "results.json"), Data.Bytes(checks));
 Console.WriteLine(checks.Count + " catalog publishing checks passed.");
 

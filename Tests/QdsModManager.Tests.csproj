@@ -1,6 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable></PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="Lib.Harmony" Version="[2.4.2]" GeneratePathProperty="true" PrivateAssets="all" />
+    <None Include="$(PkgLib_Harmony)/LICENSE" Link="AutomaticGeometry.Harmony.LICENSE.txt" CopyToOutputDirectory="PreserveNewest" />
     <ProjectReference Include="../Core/QdsModManager.Core.csproj" />
     <ProjectReference Include="Fixtures/CommunityModule/CommunityModule.csproj" />
     <Compile Remove="Fixtures/**" />

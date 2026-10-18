@@ -81,7 +81,7 @@ public sealed class GitHub : IDisposable
             record.Tag != receipt.Tag || record.Commit != receipt.Commit || Data.Hash(Data.Bytes(record)) != receipt.RecordSha256)
             throw new InvalidDataException("Approved release provenance changed.");
         await VerifySource(record);
-        using var packages = new OnlineCatalog(Path.Combine(cache, "catalog"));
+        using var packages = new OnlineCatalog(Path.Combine(cache, "catalog"), client);
         var item = new CatalogItem(record.Content.Id, record.Content.Name, record.Content.Description, record.Repository, [record.Release]);
         var package = await packages.Download(item, record.Release, Path.Combine(cache, "packages"), default);
         Contract.Package(record, package.Path); return record;
@@ -101,7 +101,7 @@ public sealed class GitHub : IDisposable
         var records = new List<ReleaseRecord>();
         var approved = existing?.Releases ?? [];
         var seen = new HashSet<SourceReceipt>();
-        using var packages = new OnlineCatalog(Path.Combine(cache, "catalog"));
+        using var packages = new OnlineCatalog(Path.Combine(cache, "catalog"), client);
         foreach (var mod in Catalog.Mods)
         {
             string repository = OnlineCatalog.Repository(mod.Id);

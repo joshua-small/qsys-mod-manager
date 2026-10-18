@@ -2,10 +2,10 @@ name: Windows installer
 on:
   workflow_dispatch:
   pull_request:
-    paths: ['App/**', 'Core/**', 'Tests/**', 'UiTests/**', 'Pack/**', 'catalog/**', 'Installer/**', 'README.md', 'THIRD-PARTY-NOTICES.txt', '.github/workflows/windows-installer.yml']
+    paths: ['App/**', 'CatalogTool/**', 'CatalogTests/**', 'global.json', 'Core/**', 'Tests/**', 'UiTests/**', 'Pack/**', 'catalog/**', 'Installer/**', 'README.md', 'THIRD-PARTY-NOTICES.txt', '.github/workflows/windows-installer.yml']
   push:
     branches: [main]
-    paths: ['App/**', 'Core/**', 'Tests/**', 'UiTests/**', 'Pack/**', 'catalog/**', 'Installer/**', 'README.md', 'THIRD-PARTY-NOTICES.txt', '.github/workflows/windows-installer.yml']
+    paths: ['App/**', 'CatalogTool/**', 'CatalogTests/**', 'global.json', 'Core/**', 'Tests/**', 'UiTests/**', 'Pack/**', 'catalog/**', 'Installer/**', 'README.md', 'THIRD-PARTY-NOTICES.txt', '.github/workflows/windows-installer.yml']
 permissions:
   contents: read
 jobs:
@@ -47,25 +47,11 @@ jobs:
             & './artifacts/ui-dotnet/bin/QdsModManager.UiTests/release_win-x64/QdsModManager.UiTests.exe' --tray-shutdown $scenario "artifacts/tray-checks/$scenario"
             if ($LASTEXITCODE) { exit $LASTEXITCODE }
           }
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - name: Verify grouped profiles, packages and recovery
-        shell: pwsh
-        run: |
-          dotnet build Tests/QdsModManager.Tests.csproj --artifacts-path artifacts/test-dotnet
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          $tests = 'artifacts/test-dotnet/bin/QdsModManager.Tests/debug/QdsModManager.Tests.dll'
-          dotnet $tests --online artifacts/test-downloads
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          dotnet build Tests/Fixtures/PreviousModule/PreviousModule.csproj --artifacts-path artifacts/fixture-dotnet
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          $index = Get-Content catalog/index.json -Raw | ConvertFrom-Json
-          $schematic = $index.mods | Where-Object id -eq 'schematic-tools'
-          $release = $schematic.releases | Sort-Object { [version]$_.version } -Descending | Select-Object -First 1
-          [IO.Compression.ZipFile]::ExtractToDirectory((Join-Path $PWD ("artifacts/test-downloads/packages/" + $release.sha256 + '.qdsmod')), (Join-Path $PWD 'artifacts/test-payload'))
-          Copy-Item artifacts/fixture-dotnet/bin/PreviousModule/debug/Designer.Modules.SelectionProbe.dll artifacts/test-payload/payload/Designer.Modules.SelectionProbe.dll -Force
-          dotnet run --project Pack/QdsModManager.Pack.csproj --artifacts-path artifacts/pack-dotnet -- schematic-tools artifacts/test-payload/payload artifacts/test-downloads/test-packages/synthetic-previous.qdsmod
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          dotnet $tests artifacts/test-downloads/test-packages artifacts/profile-tests unit
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+        run: python Tests/run_offline.py artifacts/offline-tests
       - name: Install pinned compiler
         shell: pwsh
         run: |

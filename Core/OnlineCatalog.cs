@@ -11,10 +11,12 @@ public sealed class OnlineCatalog : IDisposable
 {
     public const string IndexUrl = "https://raw.githubusercontent.com/joshua-small/qsys-mod-catalog/published/catalog/feed.json";
     private readonly HttpClient client;
+    private readonly bool ownsClient;
     private readonly string cache;
     private const int IndexLimit = CatalogTrust.Limit, PackageLimit = 24 * 1024 * 1024;
     public OnlineCatalog(string dataDirectory, HttpClient? client = null)
     {
+        ownsClient = client is null;
         this.client = client ?? new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(45) };
         this.client.DefaultRequestHeaders.UserAgent.ParseAdd("QDS-Mod-Manager/0.2");
         cache = Path.Combine(dataDirectory, "signed-catalog-cache.json");
@@ -139,5 +141,5 @@ public sealed class OnlineCatalog : IDisposable
         try { File.WriteAllBytes(staging, bytes); File.Move(staging, path, true); }
         finally { if (File.Exists(staging)) File.Delete(staging); }
     }
-    public void Dispose() => client.Dispose();
+    public void Dispose() { if (ownsClient) client.Dispose(); }
 }
