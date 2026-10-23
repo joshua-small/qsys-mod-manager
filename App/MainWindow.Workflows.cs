@@ -52,7 +52,7 @@ internal sealed partial class MainWindow
     private void RefreshSidebar()
     {
         bool ready = !busy && inspection is not null && inspection.Pending is null;
-        compatibility.Visibility = inspection is not null && !inspection.Running && inspection.Pending is null ? Visibility.Collapsed : Visibility.Visible;
+        compatibility.Visibility = inspection is not null && inspection.Build?.Tested is true && !inspection.Running && inspection.Pending is null ? Visibility.Collapsed : Visibility.Visible;
         progress.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
         recoverNow.Visibility = inspection?.Pending is not null ? Visibility.Visible : Visibility.Collapsed; recoverNow.IsEnabled = !busy;
         suspend.Content = inspection?.Suspended is true ? "Mods off · Turn on" : "Mods on · Turn off"; suspend.IsEnabled = ready;
@@ -121,7 +121,7 @@ internal sealed partial class MainWindow
             // Resolve every pin before starting any download or installation change.
             var downloads = missing.Select(pin =>
             {
-                var item = snapshot?.Document.Mods.FirstOrDefault(m => m.Id == pin.Id); var release = item?.Releases.FirstOrDefault(r => r.Version == pin.Version && r.Sha256 == pin.Sha256 && IsCompatible(r));
+                var item = snapshot?.Document.Mods.FirstOrDefault(m => m.Id == pin.Id); var release = item?.Releases.FirstOrDefault(r => r.Version == pin.Version && r.Sha256 == pin.Sha256 && CanInstall(r));
                 if (item is null || release is null) throw new InvalidOperationException("Missing exact package: " + pin.Id + " " + pin.Version + ". Import its verified .qdsmod package and preview again.");
                 return (item, release);
             }).ToArray();
@@ -148,7 +148,7 @@ internal sealed partial class MainWindow
         if (inspection?.Profile is not { } profile || snapshot is null) return [];
         return profile.Mods.Select(pin =>
         {
-            var item = snapshot.Document.Mods.FirstOrDefault(i => i.Id == pin.Id); var release = item?.Releases.Where(r => IsCompatible(r) && !Manager.RequiresSchematicToolsMigration(pin.Id, pin.Version, r.Version)).OrderByDescending(r => Version.Parse(r.Version)).FirstOrDefault();
+            var item = snapshot.Document.Mods.FirstOrDefault(i => i.Id == pin.Id); var release = item?.Releases.Where(r => CanInstall(r) && !Manager.RequiresSchematicToolsMigration(pin.Id, pin.Version, r.Version)).OrderByDescending(r => Version.Parse(r.Version)).FirstOrDefault();
             return (Item: item!, Release: release!, Pin: pin);
         }).Where(x => x.Item is not null && x.Release is not null && Version.Parse(x.Release.Version) > Version.Parse(x.Pin.Version)).ToArray();
     }

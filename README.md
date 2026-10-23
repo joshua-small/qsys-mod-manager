@@ -25,7 +25,9 @@ The sidebar groups Designer installation, Profile, Mod updates and Tools. **New 
 
 Manager self-updates are separate from mod updates. Q-SYS Mod Manager checks for its own update when it opens; **Settings & diagnostics → Check manager update** checks again. Choose **Install**, then **Update & restart** and allow the administrator prompt. Settings and mods are kept; Designer can stay open. Profile/state format and transaction contracts are described in [Profiles](docs/PROFILES.md).
 
-Currently supports the compatible Q-SYS Designer 10.5 build on Windows. These are unofficial Designer extensions; nothing is installed on a Core.
+Tested with the Q-SYS Designer 10.5 build on Windows. Other Designer versions can be selected and managed, with **WARNING: Untested on this version. Use at your own risk.** displayed in the installation panel and before applying each change. The **All** filter includes these mods; **Compatible** shows only matches to the tested build. Mods may not load or work correctly on untested versions, including when an individual mod enforces its own build requirements. These are unofficial Designer extensions; nothing is installed on a Core.
+
+The warning does not bypass package verification, dependency checks, protection of unmanaged files, backups, or recovery. Missing Designer files still block changes. If the Designer build changes after a preview, refresh and preview again.
 
 To uninstall, use **Settings → Apps → Installed apps → Q-SYS Mod Manager**. Your settings, downloaded packages, backups, and installed Designer mods are kept. To remove mods too, remove them in the manager first.
 

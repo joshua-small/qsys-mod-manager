@@ -32,7 +32,7 @@ internal sealed partial class MainWindow
     private async Task<ModPackage> DownloadRequired(ModRequirement requirement, CancellationToken cancellation)
     {
         var item = snapshot?.Document.Mods.FirstOrDefault(m => m.Id == requirement.Id);
-        var release = item?.Releases.Where(r => IsCompatible(r) && Requirements.Matches(requirement, r.Version)).OrderByDescending(r => Version.Parse(r.Version)).FirstOrDefault();
+        var release = item?.Releases.Where(r => CanInstall(r) && Requirements.Matches(requirement, r.Version)).OrderByDescending(r => Version.Parse(r.Version)).FirstOrDefault();
         if (item is null || release is null) throw new InvalidOperationException("Import a compatible package for " + requirement.Id + " before continuing.");
         message.Text = "Verifying " + item.Name + " " + release.Version + "…";
         var package = await online.Download(item, release, Path.Combine(userData, "Packages"), cancellation); packages.Add(package); return package;

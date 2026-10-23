@@ -41,6 +41,8 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           & './artifacts/ui-dotnet/bin/QdsModManager.UiTests/release_win-x64/QdsModManager.UiTests.exe' artifacts/ui-colors
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          & './artifacts/ui-dotnet/bin/QdsModManager.UiTests/release_win-x64/QdsModManager.UiTests.exe' --compatibility artifacts/ui-compatibility
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
           & './artifacts/ui-dotnet/bin/QdsModManager.UiTests/release_win-x64/QdsModManager.UiTests.exe' --tray artifacts/tray-checks
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           foreach ($scenario in @('ordinary','update','session','download')) {

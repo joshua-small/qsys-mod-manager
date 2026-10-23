@@ -133,7 +133,7 @@ File.WriteAllText(Path.Combine(stale, Catalog.Mod("schematic-tools").Marker), "e
 Reject(() => staleEngine.Apply(stalePlan), "Stale preview rejected");
 Check(File.ReadAllText(Path.Combine(stale, Catalog.Mod("schematic-tools").Marker)) == "external change", "External file preserved");
 Reject(() => staleEngine.Prepare("Install", "schematic-tools", latest.Path), "Unknown existing marker not overwritten");
-string badHost = Fresh("wrong-host"); File.WriteAllText(Path.Combine(badHost, "ModuleCommon.dll"), "changed"); Reject(() => Engine(badHost).Prepare("Install", "schematic-tools", latest.Path), "Wrong host rejected");
+CompatibilityChecks.Run(output, latest, host, common, checks);
 string badDependency = Fresh("wrong-dependency"); File.WriteAllText(Path.Combine(badDependency, Catalog.Harmony), "other version"); Reject(() => Engine(badDependency).Prepare("Install", "schematic-tools", latest.Path), "Different shared dependency not overwritten");
 
 string failing = Fresh("rollback"); var failingEngine = Engine(failing); var failureBefore = Files(failing);

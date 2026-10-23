@@ -10,7 +10,7 @@ QMM fetches a signed catalog feed containing approved definitions, the index and
 
 The UI carries the verified feed with an operation preview. The elevated worker verifies it again before reading the package or changing any file. Unsigned local approval files are accepted only by build/publishing tools, not by the application. An offline package for a newly approved mod requires a previously verified catalog snapshot.
 
-Definitions contain the mod's identity, repository, module and exact allowed file layouts. A new mod does not need a manager recompile. The package verifier still rejects unsafe paths, conflicting ownership, unknown files, incorrect shared hashes, wrong assembly names/versions, unsupported Designer builds and oversized archives. Imported packages retain the existing verified-layout workflow; a valid local package is not a proof of author provenance.
+Definitions contain the mod's identity, repository, module and exact allowed file layouts. A new mod does not need a manager recompile. The package verifier still rejects unsafe paths, conflicting ownership, unknown files, incorrect shared hashes, wrong assembly names/versions, unsupported package build declarations and oversized archives. Imported packages retain the existing verified-layout workflow; a valid local package is not a proof of author provenance. Installing an approved package on an untested Designer build requires the warning acknowledgement described in [Profiles](PROFILES.md); it does not change the package's tested-build declaration or certify runtime compatibility.
 
 ## Activation and history
 

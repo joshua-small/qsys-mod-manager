@@ -103,6 +103,7 @@ internal sealed partial class MainWindow : Window
     private static void Open(string path) => Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
     internal void SelectTarget(string path) { refreshing = true; if (!target.Items.Contains(path)) target.Items.Add(path); target.SelectedItem = path; refreshing = false; Refresh(); }
     private bool IsCompatible(CatalogRelease release) => OnlineCatalog.Compatible(release, hostHash, commonHash);
+    private bool CanInstall(CatalogRelease release) => inspection is not null && OnlineCatalog.Compatible(release, Catalog.HostHash, Catalog.CommonHash);
     private void LoadLibrary()
     {
         packages.Clear(); var errors = new List<string>();
@@ -117,14 +118,19 @@ internal sealed partial class MainWindow : Window
         if (busy || refreshing) return; refreshing = true; hostHash = commonHash = null;
         try
         {
-            LoadLibrary(); var engine = new Manager(target.Text); packages.AddRange(engine.CachedPackages().Where(p => !packages.Any(x => x.ArchiveHash == p.ArchiveHash))); inspection = engine.Inspect(packages); RefreshProfiles(); hostHash = Catalog.HostHash; commonHash = Catalog.CommonHash;
+            LoadLibrary(); var engine = new Manager(target.Text); packages.AddRange(engine.CachedPackages().Where(p => !packages.Any(x => x.ArchiveHash == p.ArchiveHash))); inspection = engine.Inspect(packages); RefreshProfiles(); hostHash = inspection.Build?.HostSha256; commonHash = inspection.Build?.CommonSha256;
             if (!smoke && themes.Settings.DesignerPath != inspection.Target)
                 try { themes.Save(themes.Settings with { DesignerPath = inspection.Target }); } catch (Exception error) { errors.Add("Could not remember Designer: " + error.Message); }
             compatibility.Text = inspection.Pending is not null ? "Recovery required" : inspection.Running ? "Designer is running" : "Ready to manage mods"; compatibility.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
+            if (inspection.Build?.Tested is false)
+            {
+                compatibility.Text = DesignerBuild.UntestedWarning + (inspection.Pending is not null ? "\nRecovery required" : inspection.Running ? "\nDesigner is running" : "");
+                compatibility.SetResourceReference(TextBlock.ForegroundProperty, "Bad");
+            }
             message.Text = inspection.Pending is not null ? "An interrupted change needs recovery before you can continue." : "";
             if (libraryErrors.Length > 0) message.Text += "\nSome local packages could not be read: " + libraryErrors;
         }
-        catch (Exception error) { inspection = null; compatibility.Text = error.GetBaseException().Message; compatibility.SetResourceReference(TextBlock.ForegroundProperty, "Bad"); message.Text = "Choose a supported Designer installation. Use the All filter to browse mods."; }
+        catch (Exception error) { inspection = null; compatibility.Text = error.GetBaseException().Message; compatibility.SetResourceReference(TextBlock.ForegroundProperty, "Bad"); message.Text = "Choose a complete Designer installation. Use the All filter to browse mods."; }
         finally { refreshing = false; Filter(); }
     }
     private void Filter()
@@ -134,13 +140,13 @@ internal sealed partial class MainWindow : Window
         var rows = Catalog.Mods.Select(mod =>
         {
             var local = inspection?.Mods.FirstOrDefault(m => m.Id == mod.Id); var remote = snapshot?.Document.Mods.FirstOrDefault(m => m.Id == mod.Id);
-            var release = remote?.Releases.Where(IsCompatible).OrderByDescending(r => Version.Parse(r.Version)).FirstOrDefault();
+            var release = remote?.Releases.Where(CanInstall).OrderByDescending(r => Version.Parse(r.Version)).FirstOrDefault();
             string available = release?.Version ?? packages.Where(p => p.Manifest.Id == mod.Id).OrderByDescending(p => Version.Parse(p.Manifest.Version)).FirstOrDefault()?.Manifest.Version ?? "—";
             string status = local?.Status ?? "Not compatible";
             if (local?.Managed is true && status != "Files changed outside manager" && release is not null && Version.Parse(release.Version) > Version.Parse(local.Version))
                 status = Manager.RequiresSchematicToolsMigration(mod.Id, local.Version, release.Version) ? "Split migration available" : "Update available";
             return new ModRow(mod.Id, mod.Name, local?.Version ?? "—", available, status, local, remote) { Thumbnail = thumbnails.GetValueOrDefault(mod.Id) ?? Icon, CanManage = inspection is not null && inspection.Pending is null && !inspection.Suspended };
-        }).Where(row => (scope.SelectedIndex switch { 1 => inspection is not null && (row.Remote is null || row.Remote.Releases.Any(IsCompatible) || packages.Any(p => p.Manifest.Id == row.Id)), 2 => row.Local?.Managed is true || row.Local?.Enabled is true, 3 => row.Local?.Managed is true && row.Local.Enabled, 4 => row.Local?.Managed is true && row.Local.Enabled is false, 5 => row.Status == "Update available", _ => true })
+        }).Where(row => (scope.SelectedIndex switch { 1 => inspection?.Build?.Tested is true && (row.Remote is null || row.Remote.Releases.Any(IsCompatible) || packages.Any(p => p.Manifest.Id == row.Id)), 2 => row.Local?.Managed is true || row.Local?.Enabled is true, 3 => row.Local?.Managed is true && row.Local.Enabled, 4 => row.Local?.Managed is true && row.Local.Enabled is false, 5 => row.Status == "Update available", _ => true })
             && OnlineCatalog.Matches(row.Remote ?? new(row.Id, row.Name, Catalog.Mod(row.Id).Description, OnlineCatalog.Repository(row.Id), Array.Empty<CatalogRelease>()), search.Text)).OrderBy(r => r.Name, StringComparer.OrdinalIgnoreCase).ToArray();
         mods.ItemsSource = rows; mods.SelectedItem = rows.FirstOrDefault(m => m.Id == selected); ShowMod();
         emptyList.Visibility = rows.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
@@ -157,11 +163,11 @@ internal sealed partial class MainWindow : Window
         if (row?.Remote is { } remote) foreach (var release in remote.Releases)
         {
             var package = packages.FirstOrDefault(p => p.ArchiveHash == release.Sha256);
-            choices.Add(new(release.Version + (IsCompatible(release) ? package is null ? " · download" : " · downloaded" : " · incompatible"), release.Version, package, release, remote));
+            choices.Add(new(release.Version + (CanInstall(release) ? (package is null ? " · download" : " · downloaded") + (IsCompatible(release) ? "" : " · untested") : " · incompatible"), release.Version, package, release, remote));
         }
         foreach (var package in packages.Where(p => p.Manifest.Id == row?.Id && !choices.Any(c => c.Package?.ArchiveHash == p.ArchiveHash)))
-            choices.Add(new(package.Manifest.Version + " · local", package.Manifest.Version, package, null, null));
-        var ordered = choices.OrderByDescending(c => c.Release is null ? inspection is not null : IsCompatible(c.Release)).ThenByDescending(c => Version.Parse(c.Version)).ToArray();
+            choices.Add(new(package.Manifest.Version + " · local" + (inspection?.Build?.Tested is false ? " · untested" : ""), package.Manifest.Version, package, null, null));
+        var ordered = choices.OrderByDescending(c => c.Release is null ? inspection is not null : CanInstall(c.Release)).ThenByDescending(c => Version.Parse(c.Version)).ToArray();
         ShowPresentation(row);
         versions.ItemsSource = ordered; versions.SelectedItem = row?.Local?.Managed is false ? ordered.FirstOrDefault(c => c.Version == row.Local.Version) ?? ordered.FirstOrDefault() : ordered.FirstOrDefault(); Buttons();
     }
@@ -171,7 +177,7 @@ internal sealed partial class MainWindow : Window
         migrate.IsEnabled = !busy && inspection is { Pending: null, Running: false };
         var row = mods.SelectedItem as ModRow; var choice = versions.SelectedItem as VersionChoice;
         bool ready = !busy && inspection is not null && inspection.Pending is null && !inspection.Suspended;
-        bool supported = choice is not null && (choice.Release is null ? inspection is not null : IsCompatible(choice.Release));
+        bool supported = choice is not null && (choice.Release is null ? inspection is not null : CanInstall(choice.Release));
         bool alreadyInstalled = row?.Local?.Managed is true && row.Local.Enabled && row.Local.Version == choice?.Version
             && inspection?.Profile?.Mods.FirstOrDefault(p => p.Id == row.Id)?.Sha256 == (choice?.Package?.ArchiveHash ?? choice?.Release?.Sha256);
         install.Content = alreadyInstalled ? "Installed" : choice?.Package is null ? "Download & install" : row?.Local?.Managed is true ? "Install version" : "Install";
@@ -192,14 +198,14 @@ internal sealed partial class MainWindow : Window
         RefreshSidebar();
         cancel.Visibility = busy && !applying ? Visibility.Visible : Visibility.Collapsed;
         checkUpdate.IsEnabled = !busy && !updateChecking; installUpdate.IsEnabled = !busy && !updateChecking && managerUpdate is not null;
-        availability.Text = row is null ? "" : "Installed: " + row.Installed + "\nLatest compatible: " + row.Available + "\n\n" + (supported ? "Verified for the supported Designer 10.5 build." : "This version does not match the selected Designer build.");
-        availability.SetResourceReference(TextBlock.ForegroundProperty, supported ? "Muted" : "Bad");
-        string? blocked = busy ? "Wait for the current operation to finish." : inspection is null ? "Choose a supported Designer installation." : inspection.Pending is not null ? "Recover the interrupted change before managing mods." : row is null ? "Select a mod first." : null;
+        availability.Text = row is null ? "" : "Installed: " + row.Installed + "\nLatest available: " + row.Available + "\n\n" + (inspection?.Build?.Tested is false ? DesignerBuild.UntestedWarning : supported ? "Verified for the tested Designer 10.5 build." : "This version is unavailable for the selected installation.");
+        availability.SetResourceReference(TextBlock.ForegroundProperty, supported && inspection?.Build?.Tested is true ? "Muted" : "Bad");
+        string? blocked = busy ? "Wait for the current operation to finish." : inspection is null ? "Choose a complete Designer installation." : inspection.Pending is not null ? "Recover the interrupted change before managing mods." : row is null ? "Select a mod first." : null;
         Explain(install, blocked ?? (choice is null ? "Choose a version first." : !supported ? "This version is not compatible with your Designer." : alreadyInstalled ? "This version is already installed and enabled." : "Install the selected version. You'll review the change before applying it."));
         Explain(adopt, blocked ?? (row?.Local?.Managed is true ? "This mod is already managed by Q-SYS Mod Manager." : row?.Local?.Status != "Installed · not managed yet" ? "This action is for an existing matching mod that is not managed yet." : choice?.Package is null ? "Import the matching mod package to register this installation." : "Register an existing matching installation without changing its files."));
         Explain(toggle, blocked ?? (toggle.IsEnabled ? inspection?.Running is true ? "Close Designer before changing this mod's enabled state." : "Changes take effect the next time Designer starts." : "Install or manage this mod before changing its enabled state."));
         Explain(remove, blocked ?? (remove.IsEnabled ? inspection?.Running is true ? "Close Designer before removing this mod." : "Remove this mod after reviewing the change. Previous files are kept for undo." : "Install or manage this mod before removing it."));
-        Explain(undo, busy ? "Wait for the current operation to finish." : inspection is null ? "Choose a supported Designer installation." : inspection.Pending is not null ? "Recover the interrupted change from its saved transaction." : inspection.CanUndo ? "Restore the setup before the last change." : "There is no managed change to undo yet.");
+        Explain(undo, busy ? "Wait for the current operation to finish." : inspection is null ? "Choose a complete Designer installation." : inspection.Pending is not null ? "Recover the interrupted change from its saved transaction." : inspection.CanUndo ? "Restore the setup before the last change." : "There is no managed change to undo yet.");
     }
     private static void Explain(Button button, string help) { button.ToolTip = help; System.Windows.Automation.AutomationProperties.SetHelpText(button, help); }
     private async Task FetchCatalog(bool artwork = true)
@@ -228,7 +234,7 @@ internal sealed partial class MainWindow : Window
         }
         await Change("Install");
     }
-    private bool Preview(string title, string details, string? location = null, string action = "Apply change")
+    private bool Preview(string title, string details, string? location = null, string action = "Apply change", string? warning = null)
     {
         var dialog = new Window { Owner = this, Title = "Preview change", Width = Math.Min(600, SystemParameters.WorkArea.Width - 24), Height = Math.Min(580, SystemParameters.WorkArea.Height - 48), WindowStartupLocation = WindowStartupLocation.CenterOwner };
         var frame = new DockPanel { Margin = new Thickness(20) }; dialog.Content = frame;
@@ -236,6 +242,11 @@ internal sealed partial class MainWindow : Window
         var panel = new StackPanel(); frame.Children.Add(new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto });
         panel.Children.Add(new TextBlock { Text = title, FontSize = 22, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
         panel.Children.Add(Muted(location ?? target.Text, new Thickness(0, 14, 0, 14)));
+        if (warning is not null)
+        {
+            var notice = new TextBlock { Text = warning, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 16) };
+            notice.SetResourceReference(TextBlock.ForegroundProperty, "Bad"); panel.Children.Add(notice);
+        }
         panel.Children.Add(new TextBlock { Text = details, TextWrapping = TextWrapping.Wrap, LineHeight = 23 });
         var back = Button("Cancel"); back.Tag = "Subtle"; back.IsCancel = true; var apply = Button(action); apply.Tag = "Primary"; apply.IsDefault = true; buttons.Children.Add(back); buttons.Children.Add(apply); apply.Click += (_, _) => dialog.DialogResult = true;
         return dialog.ShowDialog() is true;
@@ -261,7 +272,9 @@ internal sealed partial class MainWindow : Window
     }
     private async Task ExecutePlan(OperationPlan plan, string caption, string detail)
     {
-        if (!Preview(caption, detail)) return;
+        bool untested = plan.ExpectedBuild?.Tested is false;
+        if (!Preview(caption, detail, plan.Target, warning: untested ? DesignerBuild.UntestedWarning : null)) return;
+        plan = plan with { UntestedVersionAcknowledged = untested };
         if (smoke) { message.Text = "Preview mode: no installation changes are applied."; return; }
         try
         {
