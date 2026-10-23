@@ -86,6 +86,12 @@ internal sealed partial class MainWindow
         DockPanel.SetDock(scope, Dock.Left); filters.Children.Add(scope);
         var reset = Button("Reset"); reset.Margin = new Thickness(6, 0, 0, 0); reset.Tag = "Subtle"; reset.Click += (_, _) => { search.Clear(); scope.SelectedIndex = 0; }; Explain(reset, "Clear search and show all mods"); DockPanel.SetDock(reset, Dock.Right); filters.Children.Add(reset);
         search.MinWidth = 40; filters.Children.Add(search);
+        var selectionBar = new WrapPanel { Margin = new Thickness(0, 0, 0, 10) }; DockPanel.SetDock(selectionBar, Dock.Top); listing.Children.Add(selectionBar);
+        selectionBar.Children.Add(selectionCount); selectionBar.Children.Add(installSelected); selectionBar.Children.Add(clearSelection);
+        installSelected.Tag = "Primary"; installSelected.Margin = new Thickness(0, 0, 8, 0); clearSelection.Tag = "Subtle";
+        SetButtonIcon(installSelected, "ArrowDownload"); installSelected.Click += async (_, _) => await InstallSelected();
+        clearSelection.Click += (_, _) => { selectedModIds.Clear(); Filter(); };
+        Explain(installSelected, "Install the latest available version of every checked mod together.");
         var listArea = new Grid(); listArea.Children.Add(mods); listArea.Children.Add(emptyList); listing.Children.Add(listArea); emptyList.IsHitTestVisible = false;
         mods.HeadersVisibility = DataGridHeadersVisibility.None; mods.BorderThickness = new Thickness(); mods.CanUserSortColumns = false; mods.CanUserResizeColumns = false;
         mods.SetValue(ScrollViewer.HorizontalScrollBarVisibilityProperty, ScrollBarVisibility.Disabled); mods.ClipToBounds = true;
@@ -101,7 +107,17 @@ internal sealed partial class MainWindow
             </Grid>
           </DataTemplate>
           """);
-        mods.Columns.Add(new DataGridTemplateColumn { CellTemplate = template, Width = new DataGridLength(1, DataGridLengthUnitType.Star) });
+        var selectBox = new FrameworkElementFactory(typeof(CheckBox)); selectBox.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center);
+        selectBox.SetValue(FrameworkElement.HorizontalAlignmentProperty, HorizontalAlignment.Center);
+        selectBox.SetBinding(ToggleButton.IsCheckedProperty, new Binding("Selected") { Mode = BindingMode.TwoWay });
+        selectBox.SetBinding(AutomationProperties.NameProperty, new Binding("SelectionLabel"));
+        selectBox.AddHandler(UIElement.PreviewMouseLeftButtonDownEvent, new System.Windows.Input.MouseButtonEventHandler((sender, args) =>
+        {
+            if (sender is CheckBox box && !busy) { box.IsChecked = box.IsChecked is not true; SelectMod(box); args.Handled = true; }
+        }));
+        selectBox.AddHandler(ButtonBase.ClickEvent, new RoutedEventHandler((sender, _) => { if (sender is CheckBox box) SelectMod(box); }));
+        mods.Columns.Add(new DataGridTemplateColumn { CellTemplate = new DataTemplate { VisualTree = selectBox }, Width = new DataGridLength(36) });
+        var nameColumn = new DataGridTemplateColumn { CellTemplate = template, Width = new DataGridLength(1, DataGridLengthUnitType.Star) }; mods.Columns.Add(nameColumn);
         var rowActions = new FrameworkElementFactory(typeof(StackPanel)); rowActions.SetValue(StackPanel.OrientationProperty, Orientation.Horizontal);
         foreach (bool primary in new[] { true, false })
         {
@@ -112,7 +128,7 @@ internal sealed partial class MainWindow
             button.AppendChild(icon); button.SetValue(FrameworkElement.TagProperty, primary ? "primary" : "remove"); button.AddHandler(ButtonBase.ClickEvent, new RoutedEventHandler(RowAction)); rowActions.AppendChild(button);
         }
         mods.Columns.Add(new DataGridTemplateColumn { CellTemplate = new DataTemplate { VisualTree = rowActions }, Width = new DataGridLength(76) });
-        mods.SizeChanged += (_, _) => { if (mods.ActualWidth > 0) mods.Columns[0].Width = new DataGridLength(Math.Max(150, mods.ActualWidth - 92)); };
+        mods.SizeChanged += (_, _) => { if (mods.ActualWidth > 0) nameColumn.Width = new DataGridLength(Math.Max(150, mods.ActualWidth - 128)); };
         var detail = new StackPanel(); detailScroll.Content = detail; detailCard = Card(detailScroll); detailCard.Padding = new Thickness(16); detailCard.Margin = new Thickness(12, 0, 0, 0); Grid.SetColumn(detailCard, 1); panes.Children.Add(detailCard);
         var close = Button("Close details"); close.Tag = "Subtle"; close.HorizontalAlignment = HorizontalAlignment.Right; close.Click += (_, _) => { mods.SelectedItem = null; mods.Focus(); }; detail.Children.Add(close);
         heading.FontSize = 21; heading.TextWrapping = TextWrapping.Wrap; detail.Children.Add(detailImage); detail.Children.Add(heading); detail.Children.Add(author); detail.Children.Add(description); detail.Children.Add(availability); detail.Children.Add(SectionHeading("Version", 0)); detail.Children.Add(versions);

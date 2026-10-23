@@ -22,6 +22,8 @@ internal static class CompatibilityUiChecks
             File.WriteAllBytes(Path.Combine(target, "Q-Sys Designer.dll"), [1, 2, 3]);
             File.WriteAllBytes(Path.Combine(target, "ModuleCommon.dll"), [4, 5, 6]);
             window = new MainWindow(Path.Combine(output, "user-data")) { Left = -32000, Top = -32000, ShowActivated = false, ShowInTaskbar = false };
+            Check(!window.Settings.PreviewChanges, "Previews default off");
+            window.SaveSettings(window.Settings with { PreviewChanges = true });
             window.SmokeSetup("Light", Catalog.Current); window.Show(); window.SelectTarget(target); Pump();
             T Field<T>(string name) => (T)typeof(MainWindow).GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(window)!;
             var mods = Field<DataGrid>("mods"); var scope = Field<ComboBox>("scope"); var versions = Field<ComboBox>("versions");

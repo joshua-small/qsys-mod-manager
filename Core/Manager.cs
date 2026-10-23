@@ -1,10 +1,13 @@
 using System.Diagnostics;
 using System.Text;
+using System.Text.Json.Serialization;
 
 namespace QdsModManager;
 
 public sealed record InstalledMod(string Id, string Version, string ArchiveHash, bool Enabled);
-public sealed record RegistryState(int Schema, Dictionary<string, InstalledMod> Mods, ModProfile? Profile = null, bool Suspended = false);
+public sealed record UntestedRuntimeOptIn(int Schema, string Target, string HostSha256, string CommonSha256);
+public sealed record RegistryState(int Schema, Dictionary<string, InstalledMod> Mods, ModProfile? Profile = null, bool Suspended = false,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] UntestedRuntimeOptIn? UntestedRuntime = null);
 public sealed record DesignerBuild(string HostSha256, string CommonSha256, bool Tested)
 {
     public const string UntestedWarning = "WARNING: Untested on this version. Use at your own risk.";
@@ -12,7 +15,7 @@ public sealed record DesignerBuild(string HostSha256, string CommonSha256, bool 
 public sealed record OperationPlan(int Schema, string Action, string Target, string ModId, string? PackagePath, string? PackageHash, string ExpectedStamp, string[] ChangedFiles, ProfileChange? Group = null, SignedCatalog? CatalogProof = null, DesignerBuild? ExpectedBuild = null, bool UntestedVersionAcknowledged = false);
 public sealed record Journal(int Schema, string Id, string Action, string Status, Dictionary<string, string?> Before, Dictionary<string, string?> After, string? BeforeState, string? AfterState, string AfterStamp, string? Error, string? FileSetSha256 = null);
 public sealed record ModStatus(string Id, string Name, string Version, string Status, bool Managed, bool Enabled, string Description);
-public sealed record Inspection(string Target, bool Running, string Stamp, ModStatus[] Mods, string? Pending, bool CanUndo, ModProfile? Profile = null, bool Suspended = false, string[]? Unmanaged = null, string? AppliedStamp = null, string? LegacyStamp = null, DesignerBuild? Build = null);
+public sealed record Inspection(string Target, bool Running, string Stamp, ModStatus[] Mods, string? Pending, bool CanUndo, ModProfile? Profile = null, bool Suspended = false, string[]? Unmanaged = null, string? AppliedStamp = null, string? LegacyStamp = null, DesignerBuild? Build = null, UntestedRuntimeOptIn? UntestedRuntime = null);
 public sealed record ApplyResult(bool Success, string Message, string? Transaction);
 
 /// <summary>Only catalog-approved file layouts may be changed; vendor and unmanaged files are preserved.</summary>
@@ -56,7 +59,7 @@ public sealed class Manager
     }
     private void RequireBuild(DesignerBuild expected)
     {
-        if (Host() != expected) throw new InvalidOperationException("The Designer installation changed since the preview. Refresh and preview again.");
+        if (Host() != expected) throw new InvalidOperationException("The Designer installation changed while preparing this operation. Refresh and try again.");
     }
     // Refuse linked/reparse-point paths, including existing ancestors. Never
     // follow a package or registry path out of the selected installation.
@@ -84,6 +87,11 @@ public sealed class Manager
         string path = Local("state.json");
         var state = File.Exists(path) ? Data.Read<RegistryState>(File.ReadAllBytes(path)) : new(1, new());
         if (state.Schema is not (1 or 2) || state.Mods.Count > Catalog.Mods.Length) throw new InvalidDataException("Unsupported manager state.");
+        if (state.UntestedRuntime is { } consent)
+        {
+            if (consent.Schema != 1 || !Path.IsPathFullyQualified(consent.Target)) throw new InvalidDataException("Invalid untested runtime opt-in.");
+            Data.CheckHash(consent.HostSha256); Data.CheckHash(consent.CommonSha256);
+        }
         if (state.Profile is not null)
         {
             state.Profile.RequireCompatible();
@@ -149,7 +157,7 @@ public sealed class Manager
         var profile = AppliedProfile(state);
         string appliedStamp = Data.Hash(Data.Bytes(new { profile, state.Suspended }));
         string legacyStamp = Stamp(Catalog.LegacyFileOrder.ToDictionary(n => n, n => current[n]), HashIfFile(Local("state.json")));
-        return new(root, running(root), Stamp(), rows, history.FirstOrDefault(j => j.Status == "Pending")?.Id, latest is not null && latest.AfterStamp == JournalStamp(latest), profile, state.Suspended, unmanaged, appliedStamp, legacyStamp, build);
+        return new(root, running(root), Stamp(), rows, history.FirstOrDefault(j => j.Status == "Pending")?.Id, latest is not null && latest.AfterStamp == JournalStamp(latest), profile, state.Suspended, unmanaged, appliedStamp, legacyStamp, build, state.UntestedRuntime);
     }
     private ModProfile AppliedProfile(RegistryState state) => state.Profile ?? ModProfile.Create(Path.GetFileName(root) + " · initial", state.Mods.Values, Data.Hash(Encoding.UTF8.GetBytes(root.ToUpperInvariant()))[..32]);
     public ModPackage[] CachedPackages()
@@ -254,6 +262,8 @@ public sealed class Manager
                 throw new InvalidOperationException("An unmanaged conflicting mod is present: " + conflict.Id + ". Register it before migrating.");
     }
     public OperationPlan PrepareInstall(ModPackage selected, IEnumerable<ModPackage> available)
+        => PrepareInstall([selected], available);
+    public OperationPlan PrepareInstall(IEnumerable<ModPackage> selected, IEnumerable<ModPackage> available)
     {
         Host(); var state = State();
         if (state.Suspended) throw new InvalidOperationException("Turn managed mods on before installing a mod.");
@@ -306,15 +316,24 @@ public sealed class Manager
     {
         if (plan.Schema is not (1 or 2) || !string.Equals(root, plan.Target, StringComparison.OrdinalIgnoreCase) || (plan.Group is not null && (plan.Schema != 2 || plan.Action is not ("Profile" or "Updates" or "Suspend" or "Resume" or "InstallSet" or "Migration")))) throw new InvalidDataException("Invalid operation target.");
         var build = Host();
-        if (plan.ExpectedBuild is not null && plan.ExpectedBuild != build) throw new InvalidOperationException("The Designer installation changed since the preview. Refresh and preview again.");
+        if (plan.ExpectedBuild is not null && plan.ExpectedBuild != build) throw new InvalidOperationException("The Designer installation changed while preparing this operation. Refresh and try again.");
         if (!build.Tested && (plan.ExpectedBuild is null || !plan.UntestedVersionAcknowledged)) throw new InvalidOperationException(DesignerBuild.UntestedWarning + " Review and confirm the change before applying it.");
         Directory.CreateDirectory(registry);
         using var ownership = new FileStream(Local("operation.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
-        if (plan.ExpectedStamp != Stamp()) throw new InvalidOperationException("The installation changed since the preview. Refresh and preview again.");
+        if (plan.ExpectedStamp != Stamp()) throw new InvalidOperationException("The installation changed while preparing this operation. Refresh and try again.");
         if (plan.Action == "Recover") return Recover(build);
         var change = plan.Group is null ? Build(plan.Action, plan.ModId, plan.PackagePath) : BuildGroup(plan.Group);
-        if (change.Package?.ArchiveHash != plan.PackageHash || !change.Files.Keys.SequenceEqual(plan.ChangedFiles)) throw new InvalidOperationException("Package or operation changed since the preview.");
+        if (change.Package?.ArchiveHash != plan.PackageHash || !change.Files.Keys.SequenceEqual(plan.ChangedFiles)) throw new InvalidOperationException("The package or operation changed while preparing this change.");
         if (change.Files.Count > 0 && running(root)) throw new InvalidOperationException("Close this QDS installation before changing its mods. Your open designs have not been touched.");
+        // Consent travels with the journaled installation state, never with a
+        // reusable profile. Undo/recovery restore their exact prior consent.
+        if (plan.Action != "Undo" && change.State is { } next)
+        {
+            bool enableRuntime = !build.Tested && plan.UntestedVersionAcknowledged && !next.Suspended
+                && next.Mods.TryGetValue("mods-core", out var core) && core.Enabled;
+            change = change with { State = next with { UntestedRuntime = enableRuntime
+                ? new(1, root, build.HostSha256, build.CommonSha256) : null } };
+        }
         if (change.Package is not null) StorePackage(change.Package);
         foreach (var package in change.Packages ?? []) StorePackage(package);
         var before = Current(); string? beforeState = PutFile(Local("state.json"));

@@ -54,6 +54,11 @@ jobs:
           python-version: '3.12'
       - name: Verify grouped profiles, packages and recovery
         run: python Tests/run_offline.py artifacts/offline-tests
+      - name: Verify installation dialogs and multi-select
+        shell: pwsh
+        run: |
+          & './artifacts/ui-dotnet/bin/QdsModManager.UiTests/release_win-x64/QdsModManager.UiTests.exe' --install-flow artifacts/offline-tests/install-flow artifacts/offline-tests/running-designer artifacts/ui-install-flow
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: Build synthetic legacy installer fixture
         run: python Installer/build_legacy_fixture.py artifacts/legacy-fixture
       - name: Install pinned compiler

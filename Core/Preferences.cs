@@ -2,7 +2,7 @@ namespace QdsModManager;
 
 public enum Appearance { System, Light, Dark }
 public sealed record Preferences(Appearance Theme = Appearance.System, bool CloseToTray = false,
-    bool BackgroundUpdates = true, string? DesignerPath = null)
+    bool BackgroundUpdates = true, string? DesignerPath = null, bool PreviewChanges = false)
 {
     public static Preferences Load(string path)
     {

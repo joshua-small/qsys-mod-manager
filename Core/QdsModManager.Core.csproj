@@ -6,6 +6,7 @@
   <ItemGroup>
     <InternalsVisibleTo Include="QdsModManager.CatalogTool" />
     <InternalsVisibleTo Include="QdsModManager.CatalogTests" />
+    <InternalsVisibleTo Include="QdsModManager.UiTests" />
     <InternalsVisibleTo Include="QdsModManager.Pack" />
     <EmbeddedResource Include="../catalog/approvals.json" LogicalName="QdsModManager.Approvals.json" />
     <EmbeddedResource Include="../catalog/signing-public-key.pem" LogicalName="QdsModManager.CatalogKey.pem" />
