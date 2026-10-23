@@ -4,7 +4,9 @@ Manager 0.8 adds package schema 3. Existing schema-1/2 archives, profiles, ident
 
 An approved layout declares `dependencies` and `conflicts`, each an array of `{ "id": "mods-core", "minimum": "0.1.0", "before": "0.2.0" }` ranges. `minimum` is inclusive, optional `before` is exclusive, and versions normalize to four components. Empty lists must be explicit. A package must reproduce its approved lists exactly; it cannot omit a dependency. Only known IDs are accepted, with no self references or duplicate IDs. Enabled package graphs must satisfy every range and contain no dependency cycles or matching conflicts.
 
-Single install can resolve dependencies from verified available packages and preview the complete resulting profile. Existing compatible pins remain selected. Missing or incompatible packages, removing/disabling an in-use dependency, and enabling a consumer without its dependency fail before any write. Native shared-file hash rules still apply. Dependency package code is never loaded by the manager.
+Single and multi-select installs resolve dependencies from approved catalog policies and verified packages. Existing compatible pins remain selected; explicitly chosen versions are never silently replaced. Additional required packages get a confirmation dialog before downloading. Enabling a disabled mod uses its installed version and offers to install or enable missing dependencies. After downloading, package verification and the transaction planner recheck the complete resulting set. Missing or incompatible packages and removing/disabling an in-use dependency fail before any mod-file write. Conflicts name the actual blocker; the Schematic Tools migration is suggested only for a conflicting legacy bundle. Compact Connectors and Component Auto Width can be installed together, but Automatic Geometry must be disabled first. Native shared-file hash rules still apply. Dependency package code is never loaded by the manager.
+
+**Preview changes before applying** is an optional setting, off by default. Dependency consent remains required independently of that setting. Multi-select installs apply in one transaction with one grouped Undo. Downloads can proceed while Designer is running; a Retry/Cancel dialog requires the selected installation to close before changing mod files. The worker repeats the running-process check to catch races.
 
 Core owns `Qmm.mods-core.Runtime.dll` as a private file. Consumers depend on `mods-core` rather than carrying their own runtime copy. This permits Core updates without relaxing the immutable hashes of shared files such as Harmony.
 
@@ -12,7 +14,7 @@ Schema-3 layouts also declare minimumVersion and an optional beforeVersion for t
 
 ## Bundle migration
 
-The **Split Schematic Tools** action is visible for an installed, managed bundle earlier than 0.17. It resolves Core and the seven feature packages, then previews one grouped transaction. It preserves the profile ID/name, unrelated exact pins, disabled choices, and suspension state. The old loader is removed as the new loaders are written. An injected failure rolls back the files and profile; Undo restores the original exact bundle package. Historical archives and journal data remain intact.
+The **Split Schematic Tools** action is visible for an installed, managed bundle earlier than 0.17. It resolves Core and the seven feature packages, then applies one grouped transaction, with a preview when enabled. It preserves the profile ID/name, unrelated exact pins, disabled choices, and suspension state. The old loader is removed as the new loaders are written. An injected failure rolls back the files and profile; Undo restores the original exact bundle package. Historical archives and journal data remain intact.
 
 Ordinary updates cannot replace the legacy bundle with the diagnostics-only successor. Direct installs and grouped profiles must complete the split migration first, so the old bundle cannot silently lose its user features.
 
@@ -30,6 +32,6 @@ Preferences are owned by the mods, outside the installation transaction. Named S
 
 No unsigned runtime approval route was added. `Catalog.ForTool` remains restricted to build tools/tests. A local lab test of prospective approvals is not a production catalog approval.
 
-Validation: 151 existing package/transaction/recovery checks, 31 dependency/migration checks, source compilation, and approval preservation. The dependency checks cover missing and incompatible Core, cycles, tampered manifest policy, disabled consumers, legacy conflicts, atomic migration failure, exact-pin Undo, and the compatible developer-only successor. Native Designer acceptance is tracked separately from manager filesystem checks.
+The historical schema-3 migration validation included 151 package/transaction/recovery checks and 31 dependency/migration checks. `Tests/run_offline.py` now also runs synthetic multi-install and shared-consent checks, covering required Core resolution, conflicting selections, actionable errors, grouped Undo, suspension and rollback. The native WPF `--install-flow` harness covers checkboxes, dependency consent before downloading, preview preferences, untested acceptance, conflict dialogs and the close-Designer Retry/Cancel flow using a test-owned process. Native Designer acceptance is separate from these filesystem and UI checks.
 
 [Implementation tracking](https://github.com/joshua-small/qsys-mod-manager/issues/18).

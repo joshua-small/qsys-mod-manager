@@ -5,6 +5,7 @@ using QdsModManager;
 
 if (args.Length == 5 && args[0] == "--create-fixtures") { PackageFixtures.Create(args[1], args[2], args[3], args[4]); return; }
 if (args.Length == 4 && args[0] == "--dependency-tests") { DependencyChecks.Run(args[1], args[2], args[3]); return; }
+if (args.Length == 4 && args[0] == "--install-flow-tests") { InstallFlowChecks.Run(args[1], args[2], args[3]); return; }
 if (args.Length == 4 && args[0] == "--self-update-tests") { await SelfUpdateTests.Run(args[1], args[2], args[3]); return; }
 if (args.Length == 6 && args[0] == "--legacy-migration") { SelfUpdateTests.Legacy(args[1], args[2], args[3], args[4], args[5]); return; }
 if (args.Length == 3 && args[0] == "--self-update-crash")
@@ -133,7 +134,7 @@ File.WriteAllText(Path.Combine(stale, Catalog.Mod("schematic-tools").Marker), "e
 Reject(() => staleEngine.Apply(stalePlan), "Stale preview rejected");
 Check(File.ReadAllText(Path.Combine(stale, Catalog.Mod("schematic-tools").Marker)) == "external change", "External file preserved");
 Reject(() => staleEngine.Prepare("Install", "schematic-tools", latest.Path), "Unknown existing marker not overwritten");
-string badHost = Fresh("wrong-host"); File.WriteAllText(Path.Combine(badHost, "ModuleCommon.dll"), "changed"); Reject(() => Engine(badHost).Prepare("Install", "schematic-tools", latest.Path), "Wrong host rejected");
+CompatibilityChecks.Run(output, latest, host, common, checks);
 string badDependency = Fresh("wrong-dependency"); File.WriteAllText(Path.Combine(badDependency, Catalog.Harmony), "other version"); Reject(() => Engine(badDependency).Prepare("Install", "schematic-tools", latest.Path), "Different shared dependency not overwritten");
 
 string failing = Fresh("rollback"); var failingEngine = Engine(failing); var failureBefore = Files(failing);

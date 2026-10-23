@@ -52,7 +52,9 @@ internal sealed partial class MainWindow
     private void RefreshSidebar()
     {
         bool ready = !busy && inspection is not null && inspection.Pending is null;
-        compatibility.Visibility = inspection is not null && !inspection.Running && inspection.Pending is null ? Visibility.Collapsed : Visibility.Visible;
+        applyProfile.Content = Settings.PreviewChanges ? "Preview & apply" : "Apply profile";
+        RefreshSelection();
+        compatibility.Visibility = inspection is not null && inspection.Build?.Tested is true && !inspection.Running && inspection.Pending is null ? Visibility.Collapsed : Visibility.Visible;
         progress.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
         recoverNow.Visibility = inspection?.Pending is not null ? Visibility.Visible : Visibility.Collapsed; recoverNow.IsEnabled = !busy;
         suspend.Content = inspection?.Suspended is true ? "Mods off · Turn on" : "Mods on · Turn off"; suspend.IsEnabled = ready;
@@ -93,7 +95,7 @@ internal sealed partial class MainWindow
                     if (selected is null) return; if (Preview("Delete “" + selected.Name + "”?", "Remove this saved profile. Installed files will not change.", "Profile library", "Delete profile")) { profileLibrary.Delete(selected.Id); RefreshProfiles(); } break;
                 case "Import":
                     var open = new OpenFileDialog { Filter = "Mod profiles (*.qdsprofile;*.json)|*.qdsprofile;*.json", Title = "Import profile metadata" }; if (open.ShowDialog(this) is not true) return;
-                    var imported = ModProfile.Import(open.FileName); profileLibrary.Save(imported); RefreshProfiles(); profiles.SelectedItem = profileLibrary.Store.Profiles.Single(p => p.Id == imported.Id); message.Text = "Profile saved. Preview it to check exact packages and compatibility; nothing has been applied."; break;
+                    var imported = ModProfile.Import(open.FileName); profileLibrary.Save(imported); RefreshProfiles(); profiles.SelectedItem = profileLibrary.Store.Profiles.Single(p => p.Id == imported.Id); message.Text = "Profile saved. Choose Apply profile when ready; nothing has been applied."; break;
                 case "Export":
                     if (selected is null) return; var save = new SaveFileDialog { Filter = "Mod profile (*.qdsprofile)|*.qdsprofile", FileName = "profile.qdsprofile", Title = "Export profile metadata" }; if (save.ShowDialog(this) is true) File.WriteAllBytes(save.FileName, Data.Bytes(selected)); break;
             }
@@ -121,15 +123,15 @@ internal sealed partial class MainWindow
             // Resolve every pin before starting any download or installation change.
             var downloads = missing.Select(pin =>
             {
-                var item = snapshot?.Document.Mods.FirstOrDefault(m => m.Id == pin.Id); var release = item?.Releases.FirstOrDefault(r => r.Version == pin.Version && r.Sha256 == pin.Sha256 && IsCompatible(r));
-                if (item is null || release is null) throw new InvalidOperationException("Missing exact package: " + pin.Id + " " + pin.Version + ". Import its verified .qdsmod package and preview again.");
+                var item = snapshot?.Document.Mods.FirstOrDefault(m => m.Id == pin.Id); var release = item?.Releases.FirstOrDefault(r => r.Version == pin.Version && r.Sha256 == pin.Sha256 && CanInstall(r));
+                if (item is null || release is null) throw new InvalidOperationException("Missing exact package: " + pin.Id + " " + pin.Version + ". Import its verified .qdsmod package and try again.");
                 return (item, release);
             }).ToArray();
             foreach (var (item, release) in downloads)
             { message.Text = "Verifying " + item.Name + " " + release.Version + "…"; var package = await online.Download(item, release, Path.Combine(userData, "Packages"), cancellation.Token); packages.Add(package); }
             cancellation.Token.ThrowIfCancellationRequested();
             var plan = new Manager(chosenTarget).PrepareProfile(profile, packages, suspended ?? before.Suspended, action);
-            if (plan.ExpectedStamp != before.Stamp) throw new InvalidOperationException("The installation changed while preparing packages. Refresh and preview again.");
+            if (plan.ExpectedStamp != before.Stamp) throw new InvalidOperationException("The installation changed while preparing packages. Refresh and try again.");
             string detail = string.Join("\n", Catalog.Mods.Select(mod =>
             {
                 var old = before.Profile?.Mods.FirstOrDefault(m => m.Id == mod.Id); var next = profile.Mods.FirstOrDefault(m => m.Id == mod.Id);
@@ -140,7 +142,7 @@ internal sealed partial class MainWindow
             await ExecutePlan(plan, action switch { "Profile" => "Apply profile “" + profile.Name + "”", "Updates" => "Update managed mods", "Suspend" => "Turn managed mods off", _ => "Turn managed mods on" }, detail);
         }
         catch (OperationCanceledException) { message.Text = "Canceled. The installation and active profile are unchanged."; }
-        catch (Exception error) { RecordError(error); }
+        catch (Exception error) { OperationError(error); }
         finally { busy = false; network = null; Buttons(); }
     }
     private (CatalogItem Item, CatalogRelease Release, ProfileMod Pin)[] AvailableUpdates()
@@ -148,7 +150,7 @@ internal sealed partial class MainWindow
         if (inspection?.Profile is not { } profile || snapshot is null) return [];
         return profile.Mods.Select(pin =>
         {
-            var item = snapshot.Document.Mods.FirstOrDefault(i => i.Id == pin.Id); var release = item?.Releases.Where(r => IsCompatible(r) && !Manager.RequiresSchematicToolsMigration(pin.Id, pin.Version, r.Version)).OrderByDescending(r => Version.Parse(r.Version)).FirstOrDefault();
+            var item = snapshot.Document.Mods.FirstOrDefault(i => i.Id == pin.Id); var release = item?.Releases.Where(r => CanInstall(r) && !Manager.RequiresSchematicToolsMigration(pin.Id, pin.Version, r.Version)).OrderByDescending(r => Version.Parse(r.Version)).FirstOrDefault();
             return (Item: item!, Release: release!, Pin: pin);
         }).Where(x => x.Item is not null && x.Release is not null && Version.Parse(x.Release.Version) > Version.Parse(x.Pin.Version)).ToArray();
     }
@@ -200,6 +202,11 @@ internal sealed partial class MainWindow
         var panel = new StackPanel { Margin = new Thickness(22) }; dialog.Content = new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
         panel.Children.Add(new TextBlock { Text = "Settings & diagnostics", FontSize = 22, FontWeight = FontWeights.SemiBold }); panel.Children.Add(Muted("Appearance", new Thickness(0, 18, 0, 8))); panel.Children.Add(theme);
         AddBackgroundSettings(panel);
+        panel.Children.Add(Separator());
+        var previews = new CheckBox { Content = "Preview changes before applying", IsChecked = Settings.PreviewChanges, Margin = new Thickness(0, 4, 0, 8) };
+        previews.Click += (_, _) => { try { SaveSettings(Settings with { PreviewChanges = previews.IsChecked is true }); RefreshSidebar(); } catch (Exception error) { previews.IsChecked = Settings.PreviewChanges; RecordError(error); } };
+        panel.Children.Add(previews);
+        panel.Children.Add(Muted("Off by default. Install and other actions apply directly. Required dependency and untested-version prompts still appear when needed.", new Thickness(0, 0, 0, 12)));
         panel.Children.Add(Separator()); panel.Children.Add(Muted("MANAGER UPDATE", new Thickness(0, 0, 0, 8))); panel.Children.Add(updateStatus); panel.Children.Add(checkUpdate); panel.Children.Add(installUpdate);
         panel.Children.Add(Separator()); panel.Children.Add(backups); var copy = Button("Copy mod list"); panel.Children.Add(copy); copy.Click += (_, _) => { try { Clipboard.SetText(ModList()); message.Text = "Mod list copied."; } catch (Exception e) { RecordError(e); } };
         var export = Button("Export local diagnostic report…"); panel.Children.Add(export); export.Click += (_, _) =>

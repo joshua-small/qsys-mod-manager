@@ -22,6 +22,10 @@ tests = test_output/"QdsModManager.Tests.dll"
 packages = output/"packages"
 run("dotnet", tests, "--create-fixtures", packages, *modules)
 run("dotnet", tests, packages, output/"lifecycle", "unit")
+for mod, assembly in (("mods-core", "ModsCore"), ("compact-connectors", "CompactConnectors"), ("component-auto-width", "ComponentAutoWidth")):
+    run("dotnet", "build", "Tests/Fixtures/InstallFlow/InstallFlow.csproj", "-p:AssemblyName=Designer.Modules." + assembly, "-o", output/"modules"/mod)
+run("dotnet", tests, "--install-flow-tests", output/"modules", packages, output/"install-flow")
+run("dotnet", "build", "Tests/Fixtures/RunningDesigner/RunningDesigner.csproj", "-o", output/"running-designer")
 run("dotnet", "run", "--project", "CatalogTests/QdsModManager.CatalogTests.csproj", "--", packages, output/"publishing")
 run("dotnet", "run", "--project", "CatalogTool/QdsModManager.CatalogTool.csproj", "--", "verify-feed", "Tests/Fixtures/catalog-signed.json")
 print("Offline lifecycle, publishing and signed-feed checks passed. No release downloads were requested.")
