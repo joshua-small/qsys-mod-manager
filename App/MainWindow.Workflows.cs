@@ -66,7 +66,8 @@ internal sealed partial class MainWindow
         foreach (var item in profileCommands) item.IsEnabled = !busy && (item.Tag as string == "Import" || profiles.SelectedItem is ModProfile);
         foreach (var button in utilityButtons) button.IsEnabled = !busy;
         browse.IsEnabled = refresh.IsEnabled = import.IsEnabled = !busy;
-        var available = AvailableUpdates(); updates.Content = available.Length == 0 ? "No mod updates" : available.Length + (available.Length == 1 ? " mod update available" : " mod updates available"); updates.IsEnabled = ready && available.Length > 0;
+        var available = AvailableUpdates(); updates.Content = available.Length == 0 ? "No mod updates" : UpdateStatus.ModLabel(available.Length); updates.IsEnabled = ready && !updateChecking && !checkingAll && available.Length > 0;
+        System.Windows.Automation.AutomationProperties.SetName(updates, updates.Content.ToString());
         updates.Tag = available.Length > 0 ? "Primary" : null;
         bool differs = profiles.SelectedItem is ModProfile selected && (inspection?.Profile is not { } current || selected.Id != current.Id || !selected.Mods.SequenceEqual(current.Mods));
         applyProfile.Visibility = differs ? Visibility.Visible : Visibility.Collapsed;
@@ -74,9 +75,10 @@ internal sealed partial class MainWindow
         unmanagedState.Text = inspection?.Unmanaged is { Length: > 0 } unmanaged ? unmanaged.Length + (unmanaged.Length == 1 ? " unmanaged module remains" : " unmanaged modules remain") : "";
         unmanagedState.Visibility = string.IsNullOrEmpty(unmanagedState.Text) ? Visibility.Collapsed : Visibility.Visible;
         unmanagedState.ToolTip = "Turning mods off leaves these files in place:\n" + string.Join("\n", inspection?.Unmanaged ?? []);
-        catalogStatus.Visibility = catalogStatus.Text.StartsWith("Catalog up to date", StringComparison.Ordinal) ? Visibility.Collapsed : Visibility.Visible;
+        catalogStatus.Visibility = string.IsNullOrWhiteSpace(catalogStatus.Text) || catalogStatus.Text.StartsWith("Catalog up to date", StringComparison.Ordinal) ? Visibility.Collapsed : Visibility.Visible;
         undo.Tag = inspection?.Pending is not null ? "Primary" : null;
         RefreshNotice();
+        UpdateStateChanged?.Invoke();
     }
     private void EditProfile(string action)
     {
@@ -94,10 +96,10 @@ internal sealed partial class MainWindow
                 case "Delete":
                     if (selected is null) return; if (Preview("Delete “" + selected.Name + "”?", "Remove this saved profile. Installed files will not change.", "Profile library", "Delete profile")) { profileLibrary.Delete(selected.Id); RefreshProfiles(); } break;
                 case "Import":
-                    var open = new OpenFileDialog { Filter = "Mod profiles (*.qdsprofile;*.json)|*.qdsprofile;*.json", Title = "Import profile metadata" }; if (open.ShowDialog(this) is not true) return;
+                    var open = new OpenFileDialog { Filter = "Mod profiles (*.qdsprofile;*.json)|*.qdsprofile;*.json", Title = "Import profile metadata" }; if (RunDialog(() => open.ShowDialog(this)) is not true) return;
                     var imported = ModProfile.Import(open.FileName); profileLibrary.Save(imported); RefreshProfiles(); profiles.SelectedItem = profileLibrary.Store.Profiles.Single(p => p.Id == imported.Id); message.Text = "Profile saved. Choose Apply profile when ready; nothing has been applied."; break;
                 case "Export":
-                    if (selected is null) return; var save = new SaveFileDialog { Filter = "Mod profile (*.qdsprofile)|*.qdsprofile", FileName = "profile.qdsprofile", Title = "Export profile metadata" }; if (save.ShowDialog(this) is true) File.WriteAllBytes(save.FileName, Data.Bytes(selected)); break;
+                    if (selected is null) return; var save = new SaveFileDialog { Filter = "Mod profile (*.qdsprofile)|*.qdsprofile", FileName = "profile.qdsprofile", Title = "Export profile metadata" }; if (RunDialog(() => save.ShowDialog(this)) is true) File.WriteAllBytes(save.FileName, Data.Bytes(selected)); break;
             }
             RefreshSidebar();
         }
@@ -110,7 +112,7 @@ internal sealed partial class MainWindow
         panel.Children.Add(Muted("Profile name", new Thickness(0, 0, 0, 8))); var input = new TextBox { Text = value, MaxLength = 100 }; System.Windows.Automation.AutomationProperties.SetName(input, "Profile name"); panel.Children.Add(input);
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 16, 0, 0) }; var cancelName = Button("Cancel"); cancelName.IsCancel = true; var save = Button("Save"); save.IsDefault = true; buttons.Children.Add(cancelName); buttons.Children.Add(save); panel.Children.Add(buttons);
         save.Click += (_, _) => { if (!string.IsNullOrWhiteSpace(input.Text)) dialog.DialogResult = true; }; dialog.Loaded += (_, _) => { input.Focus(); input.SelectAll(); };
-        return dialog.ShowDialog() is true ? input.Text.Trim() : null;
+        return RunDialog(dialog.ShowDialog) is true ? input.Text.Trim() : null;
     }
     private async Task ApplyProfile(ModProfile profile, bool? suspended = null, string action = "Profile")
     {
@@ -156,7 +158,7 @@ internal sealed partial class MainWindow
     }
     private void ReviewUpdates()
     {
-        var available = AvailableUpdates(); if (busy || available.Length == 0 || inspection?.Profile is not { } profile) return;
+        var available = AvailableUpdates(); if (busy || updateChecking || checkingAll || available.Length == 0 || inspection is not { Pending: null, Profile: { } profile }) return;
         var dialog = new Window { Owner = this, Title = "Mod updates", Width = Math.Min(660, ActualWidth), Height = Math.Min(550, ActualHeight), WindowStartupLocation = WindowStartupLocation.CenterOwner };
         var panel = new DockPanel { Margin = new Thickness(20) }; dialog.Content = panel;
         var actions = new WrapPanel { HorizontalAlignment = HorizontalAlignment.Right }; DockPanel.SetDock(actions, Dock.Bottom); panel.Children.Add(actions);
@@ -166,7 +168,7 @@ internal sealed partial class MainWindow
         { var box = new CheckBox { Content = item.Item.Name + "  " + item.Pin.Version + " → " + item.Release.Version, IsChecked = true, Margin = new Thickness(0, 8, 0, 4) }; boxes.Add((box, item.Pin.Id)); rows.Children.Add(box); rows.Children.Add(Muted(Notes(item.Pin.Id, item.Release.Version), new Thickness(24, 0, 0, 12))); }
         string[]? chosen = null; var cancelUpdates = Button("Cancel"); cancelUpdates.IsCancel = true; actions.Children.Add(cancelUpdates);
         foreach (string label in new[] { "Update Selected", "Update All" }) { var button = Button(label); actions.Children.Add(button); button.Click += (_, _) => { chosen = boxes.Where(b => label == "Update All" || b.Box.IsChecked is true).Select(b => b.Id).ToArray(); if (chosen.Length > 0) dialog.DialogResult = true; }; }
-        if (dialog.ShowDialog() is true && chosen is not null)
+        if (RunDialog(dialog.ShowDialog) is true && chosen is not null)
         {
             var next = profile with { Mods = profile.Mods.Select(pin => { var update = available.FirstOrDefault(a => a.Pin.Id == pin.Id); return chosen.Contains(pin.Id) ? pin with { Version = update.Release.Version, Sha256 = update.Release.Sha256 } : pin; }).ToArray() };
             _ = ApplyProfile(next, inspection.Suspended, "Updates");
@@ -198,27 +200,34 @@ internal sealed partial class MainWindow
     private void SettingsDialog()
     {
         if (busy) return;
-        var dialog = new Window { Owner = this, Title = "Settings & diagnostics", Width = Math.Min(610, ActualWidth), Height = Math.Min(560, ActualHeight), WindowStartupLocation = WindowStartupLocation.CenterOwner };
-        var panel = new StackPanel { Margin = new Thickness(22) }; dialog.Content = new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
-        panel.Children.Add(new TextBlock { Text = "Settings & diagnostics", FontSize = 22, FontWeight = FontWeights.SemiBold }); panel.Children.Add(Muted("Appearance", new Thickness(0, 18, 0, 8))); panel.Children.Add(theme);
+        var dialog = CreateSettingsDialog(); RunDialog(dialog.ShowDialog);
+    }
+    internal Window CreateSettingsDialog()
+    {
+        var dialog = new Window { Owner = this, Title = "Settings & diagnostics", Width = Math.Min(560, SystemParameters.WorkArea.Width - 24), SizeToContent = SizeToContent.Height, MaxHeight = Math.Max(200, SystemParameters.WorkArea.Height - 48), FontSize = 13, WindowStartupLocation = WindowStartupLocation.CenterOwner };
+        var panel = new StackPanel { Margin = new Thickness(18) }; dialog.Content = new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
+        ((ScrollViewer)dialog.Content).SetResourceReference(Panel.BackgroundProperty, "Page");
+        var compact = new Style(typeof(Button), (Style)FindResource(typeof(Button)));
+        compact.Setters.Add(new Setter(Control.MinHeightProperty, 32.0)); compact.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(10, 5, 10, 5))); compact.Setters.Add(new Setter(Control.HorizontalContentAlignmentProperty, HorizontalAlignment.Left)); compact.Setters.Add(new Setter(MarginProperty, new Thickness(0, 0, 0, 6))); panel.Resources.Add(typeof(Button), compact);
         AddBackgroundSettings(panel);
         panel.Children.Add(Separator());
         var previews = new CheckBox { Content = "Preview changes before applying", IsChecked = Settings.PreviewChanges, Margin = new Thickness(0, 4, 0, 8) };
         previews.Click += (_, _) => { try { SaveSettings(Settings with { PreviewChanges = previews.IsChecked is true }); RefreshSidebar(); } catch (Exception error) { previews.IsChecked = Settings.PreviewChanges; RecordError(error); } };
         panel.Children.Add(previews);
         panel.Children.Add(Muted("Off by default. Install and other actions apply directly. Required dependency and untested-version prompts still appear when needed.", new Thickness(0, 0, 0, 12)));
-        panel.Children.Add(Separator()); panel.Children.Add(Muted("MANAGER UPDATE", new Thickness(0, 0, 0, 8))); panel.Children.Add(updateStatus); panel.Children.Add(checkUpdate); panel.Children.Add(installUpdate);
-        panel.Children.Add(Separator()); panel.Children.Add(backups); var copy = Button("Copy mod list"); panel.Children.Add(copy); copy.Click += (_, _) => { try { Clipboard.SetText(ModList()); message.Text = "Mod list copied."; } catch (Exception e) { RecordError(e); } };
+        panel.Children.Add(SectionHeading("Diagnostics", 16)); panel.Children.Add(backups); var copy = Button("Copy mod list"); panel.Children.Add(copy); copy.Click += (_, _) => { try { Clipboard.SetText(ModList()); message.Text = "Mod list copied."; } catch (Exception e) { RecordError(e); } };
         var export = Button("Export local diagnostic report…"); panel.Children.Add(export); export.Click += (_, _) =>
         {
             try
             {
-                var save = new SaveFileDialog { Title = "Save local diagnostic report", FileName = "qsys-mod-manager-diagnostics.json", Filter = "JSON report (*.json)|*.json" }; if (save.ShowDialog(dialog) is not true) return;
+                var save = new SaveFileDialog { Title = "Save local diagnostic report", FileName = "qsys-mod-manager-diagnostics.json", Filter = "JSON report (*.json)|*.json" }; if (RunDialog(() => save.ShowDialog(dialog)) is not true) return;
                 File.WriteAllBytes(save.FileName, Data.Bytes(new { schema = 1, createdUtc = DateTimeOffset.UtcNow, managerVersion = AppUpdate.CurrentVersion, os = Environment.OSVersion.ToString(), designer = target.Text, compatibility = compatibility.Text, hostSha256 = hostHash, commonSha256 = commonHash, inspection, catalogStatus = catalogStatus.Text, errors = errors.Concat(inspection is null ? [] : new Manager(target.Text).OperationErrors()).ToArray() })); message.Text = "Diagnostic report saved locally.";
             }
             catch (Exception e) { RecordError(e); }
         };
         panel.Children.Add(Muted("Diagnostics include local installation paths and operation errors. Nothing is uploaded.", new Thickness(0, 12, 0, 0)));
-        dialog.ShowDialog(); panel.Children.Clear();
+        var close = Button("Close"); close.IsCancel = true; close.HorizontalAlignment = HorizontalAlignment.Right; close.Margin = new Thickness(0, 14, 0, 0); close.Click += (_, _) => dialog.Close(); panel.Children.Add(close);
+        dialog.Closed += (_, _) => panel.Children.Clear();
+        return dialog;
     }
 }

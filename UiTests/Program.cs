@@ -15,9 +15,13 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
+        if (args.Length >= 2 && args[0] == "--shell-preview") return ShellPreview.Run(args[1], args.Skip(2).ToArray());
+        if (args.Length == 2 && args[0] == "--shell-fixture-check") return ShellPreview.Run(args[1], [], true);
         if (args.Length == 2 && args[0] == "--compatibility") return CompatibilityUiChecks.Run(args[1]);
+        if (args.Length == 4 && args[0] == "--designer-version") return DesignerVersionChecks.Run(args[1], args[2], args[3]);
         if (args.Length == 4 && args[0] == "--install-flow") return InstallFlowUiChecks.Run(args[1], args[2], args[3]);
         if (args.Length == 2 && args[0] == "--tray") return TrayChecks.Run(args[1]);
+        if (args.Length == 2 && args[0] == "--updates") return UpdateChecks.Run(args[1]);
         if (args.Length == 3 && args[0] == "--tray-shutdown") return TrayChecks.Shutdown(args[1], args[2]);
         string output = Path.GetFullPath(args.Single()); Directory.CreateDirectory(output);
         var assembly = Assembly.Load("Q-SYS Mod Manager");

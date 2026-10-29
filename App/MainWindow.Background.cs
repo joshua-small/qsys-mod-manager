@@ -9,15 +9,22 @@ internal sealed partial class MainWindow
     private readonly CancellationTokenSource lifetime = new();
     private readonly UpdateNotifications notifications = new();
     private bool initialized, checkingAll, closed, catalogFresh;
+    private Task? initialization;
+    private int dialogDepth;
     internal Preferences Settings => themes.Settings;
     internal void SaveSettings(Preferences settings) => themes.Save(settings);
     internal bool ApplyingChange => applying;
     internal bool UpdateHandoff => updateHandoff;
-    internal bool WorkInProgress => busy || updateChecking || checkingAll || !initialized || OwnedWindows.Cast<Window>().Any(w => w.IsVisible);
+    internal bool WorkInProgress => busy || applying || updateHandoff || updateChecking || checkingAll || dialogDepth > 0 || !initialized || OwnedWindows.Cast<Window>().Any(w => w.IsVisible);
     internal bool CanLaunchFromTray => !WorkInProgress && inspection is { Pending: null } && File.Exists(Path.Combine(target.Text, "Q-Sys Designer.exe"));
     internal event Action<string>? UpdatesAvailable;
+    internal event Action? UpdateStateChanged;
+    internal void ReportShellError(Exception error) => errors.Add("Windows update shortcuts: " + error.GetBaseException().Message);
+    internal UpdateStatus UpdateState => new(managerUpdate?.Version, AvailableUpdates().Length, !WorkInProgress && !closed,
+        !WorkInProgress && !closed && inspection is { Pending: null });
 
-    internal async Task Initialize(bool background)
+    internal Task Initialize(bool background) => initialization ??= InitializeCore(background);
+    private async Task InitializeCore(bool background)
     {
         if (smoke || initialized || closed) return; initialized = true;
         MigrateKnownInstallations();
@@ -50,7 +57,7 @@ internal sealed partial class MainWindow
             string[] fresh = notifications.TakeNew(updates);
             if (fresh.Length > 0) UpdatesAvailable?.Invoke(string.Join(", ", fresh.Take(5)) + (fresh.Length > 5 ? " and more" : "") + ". Open QMM to review.");
         }
-        finally { checkingAll = false; }
+        finally { checkingAll = false; Buttons(); }
     }
     internal bool LaunchFromTray()
     {
@@ -59,18 +66,41 @@ internal sealed partial class MainWindow
     }
     internal void OpenUpdateNotification()
     {
-        if (busy || OwnedWindows.Cast<Window>().Any(w => w.IsVisible)) return;
-        if (managerUpdate is not null) SettingsDialog(); else ReviewUpdates();
+        if (WorkInProgress) return;
+        if (managerUpdate is not null) ShowManagerUpdateAction(); else ReviewUpdates();
     }
     internal void ReviewCheckedUpdates()
     {
-        if (busy || closed || OwnedWindows.Cast<Window>().Any(w => w.IsVisible)) return;
-        if (managerUpdate is null && AvailableUpdates().Length > 0) ReviewUpdates(); else SettingsDialog();
+        if (WorkInProgress || closed) return;
+        if (AvailableUpdates().Length > 0) ReviewUpdates();
+        else if (managerUpdate is not null) ShowManagerUpdateAction();
+        else message.Text = "Update check complete. See Mod updates and Manager updates in the sidebar.";
+    }
+    private void ShowManagerUpdateAction()
+    {
+        installUpdate.BringIntoView(); installUpdate.Focus();
+        message.Text = "QMM " + managerUpdate!.Version + " is available. Choose Install in Manager updates when you are ready.";
+    }
+    internal async Task RunUpdateCommand(UpdateCommand command)
+    {
+        // Shell tasks never carry a package, version, path or arbitrary payload.
+        // Re-read availability, then use the sidebar's explicit install workflow.
+        if (closed || WorkInProgress) return;
+        if (command == UpdateCommand.Manager && managerUpdate is not null) await InstallManagerUpdate();
+        else if (command == UpdateCommand.Mods && inspection is { Pending: null } && AvailableUpdates().Length > 0) ReviewUpdates();
+        else message.Text = "This update action is no longer available. Check for updates in the sidebar.";
+    }
+    private T RunDialog<T>(Func<T> show)
+    {
+        // Include native file pickers as well as WPF dialogs in shell guards.
+        dialogDepth++; UpdateStateChanged?.Invoke();
+        try { return show(); }
+        finally { dialogDepth--; UpdateStateChanged?.Invoke(); }
     }
 
     private void AddBackgroundSettings(Panel panel)
     {
-        panel.Children.Add(Separator()); panel.Children.Add(Muted("STARTUP & BACKGROUND", new Thickness(0, 0, 0, 8)));
+        panel.Children.Add(SectionHeading("Startup & background", 0));
         var startup = new StartupRegistration(Environment.ProcessPath!);
         var start = new CheckBox { Content = "Start with Windows", Margin = new Thickness(0, 4, 0, 8), IsEnabled = !smoke && AppIdentity.IsExecutable(Environment.ProcessPath, AppContext.BaseDirectory) };
         var feedback = new TextBlock { TextWrapping = TextWrapping.Wrap };

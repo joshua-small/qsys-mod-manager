@@ -109,7 +109,7 @@ internal static class TrayChecks
                     bitmap.Render(settings); var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder(); encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(bitmap));
                     using var image = File.Create(Path.Combine(output, "background-settings.png")); encoder.Save(image); settings.Close();
                 });
-                window.ReviewCheckedUpdates();
+                window.CreateSettingsDialog().ShowDialog();
                 bool closed = false; window.Closed += (_, _) => closed = true;
                 tray.Exit(); Check(closed && !tray.Visible, "Explicit Exit closes the hidden-capable window and removes its tray icon");
                 File.WriteAllText(Path.Combine(output, "checks.json"), JsonSerializer.Serialize(checks, new JsonSerializerOptions { WriteIndented = true }));

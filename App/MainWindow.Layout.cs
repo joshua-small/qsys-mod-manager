@@ -12,6 +12,7 @@ namespace QdsModManager.App;
 
 internal sealed partial class MainWindow
 {
+    private static readonly DependencyProperty InstallationRevisionProperty = DependencyProperty.Register("InstallationRevision", typeof(int), typeof(MainWindow), new PropertyMetadata(0));
     private readonly Button refresh = Button("Refresh"), import = Button("Import package…"), backups = Button("Open backups");
     private readonly Button suspend = Button("Mods on"), updates = Button("Mod updates (0)"), launch = Button("Launch Designer");
     private readonly Button migrate = Button("Split Schematic Tools…");
@@ -50,12 +51,25 @@ internal sealed partial class MainWindow
         var sidebar = new DockPanel { Width = 256, Margin = new Thickness(14, 16, 14, 14) }; DockPanel.SetDock(sidebar, Dock.Left);
         var sideFrame = new Border { Child = sidebar }; sideFrame.SetResourceReference(BackgroundProperty, "Page"); DockPanel.SetDock(sideFrame, Dock.Left); root.Children.Add(sideFrame);
         launch.Tag = "Primary"; launch.Margin = new Thickness(0, 12, 0, 0); DockPanel.SetDock(launch, Dock.Bottom); sidebar.Children.Add(launch);
+        var appearance = new StackPanel(); DockPanel.SetDock(appearance, Dock.Bottom); sidebar.Children.Add(appearance);
+        var utilities = new DockPanel { Margin = new Thickness(0, 10, 0, 0) }; appearance.Children.Add(utilities);
+        var tools = Button("Tools"); tools.Width = 62; tools.Margin = new Thickness(6, 0, 0, 0); DockPanel.SetDock(tools, Dock.Right); utilities.Children.Add(tools);
+        var toolsMenu = new ContextMenu { Placement = PlacementMode.Top, PlacementTarget = tools }; tools.ContextMenu = toolsMenu; tools.Click += (_, _) => toolsMenu.IsOpen = true;
+        Explain(tools, "Import packages, undo changes and open help"); AutomationProperties.SetName(tools, "More tools");
+        var settings = Button("Settings & diagnostics"); SetButtonIcon(settings, "Settings"); settings.Margin = new Thickness(); settings.Click += (_, _) => SettingsDialog(); utilities.Children.Add(settings);
+        foreach (var button in new[] { tools, settings })
+        {
+            button.FontSize = 12; button.MinHeight = 32; button.Padding = new Thickness(10, 5, 10, 5); button.BorderThickness = new Thickness(); button.SetResourceReference(Control.BackgroundProperty, "ControlSurface"); utilityButtons.Add(button);
+        }
+        appearance.Children.Add(SectionHeading("Appearance", 12)); theme.Width = double.NaN; theme.FontSize = 12; appearance.Children.Add(theme);
         var side = new StackPanel(); side.SetValue(TextElement.FontSizeProperty, 12.0);
         var compactButton = new Style(typeof(Button), (Style)FindResource(typeof(Button))); compactButton.Setters.Add(new Setter(Control.MinHeightProperty, 32.0)); compactButton.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(10, 5, 10, 5))); compactButton.Setters.Add(new Setter(Control.BorderThicknessProperty, new Thickness(0))); compactButton.Setters.Add(new Setter(Control.BackgroundProperty, new DynamicResourceExtension("ControlSurface"))); compactButton.Setters.Add(new Setter(Control.HorizontalContentAlignmentProperty, HorizontalAlignment.Left)); compactButton.Setters.Add(new Setter(FrameworkElement.MarginProperty, new Thickness(0, 0, 0, 6))); side.Resources.Add(typeof(Button), compactButton);
         var compactCombo = new Style(typeof(ComboBox), (Style)FindResource(typeof(ComboBox))); compactCombo.Setters.Add(new Setter(Control.MinHeightProperty, 34.0)); compactCombo.Setters.Add(new Setter(Control.BackgroundProperty, new DynamicResourceExtension("ControlSurface"))); side.Resources.Add(typeof(ComboBox), compactCombo);
         sidebarScroll = new() { Content = side, Focusable = false, FocusVisualStyle = null, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled }; sidebar.Children.Add(sidebarScroll);
         side.Children.Add(SectionHeading("Designer installation", 0)); target.Margin = new Thickness(); target.SetBinding(ToolTipProperty, new Binding("SelectedItem") { Source = target }); side.Children.Add(target);
-        var targetText = new FrameworkElementFactory(typeof(TextBlock)); targetText.SetBinding(TextBlock.TextProperty, new Binding { Converter = new InstallationLabel() }); targetText.SetValue(TextBlock.TextTrimmingProperty, TextTrimming.CharacterEllipsis); target.ItemTemplate = new DataTemplate { VisualTree = targetText };
+        var targetText = new FrameworkElementFactory(typeof(TextBlock));
+        var targetLabel = new MultiBinding { Converter = new InstallationLabel() }; targetLabel.Bindings.Add(new Binding()); targetLabel.Bindings.Add(new Binding { Source = this, Path = new PropertyPath(InstallationRevisionProperty) });
+        targetText.SetBinding(TextBlock.TextProperty, targetLabel); targetText.SetValue(TextBlock.TextTrimmingProperty, TextTrimming.CharacterEllipsis); target.ItemTemplate = new DataTemplate { VisualTree = targetText };
         var targetTools = new UniformGrid { Columns = 2, Margin = new Thickness(0, 6, 0, 0) }; browse.Margin = new Thickness(0, 0, 3, 0); refresh.Margin = new Thickness(3, 0, 0, 0); targetTools.Children.Add(browse); targetTools.Children.Add(refresh); side.Children.Add(targetTools);
         compatibility.FontSize = 11; compatibility.Margin = new Thickness(0, 7, 0, 10); compatibility.TextWrapping = TextWrapping.Wrap; side.Children.Add(compatibility);
         suspend.Margin = new Thickness(0, 8, 0, 0); side.Children.Add(suspend); unmanagedState.FontSize = 11; unmanagedState.Margin = new Thickness(0, 6, 0, 0); side.Children.Add(unmanagedState);
@@ -71,14 +85,21 @@ internal sealed partial class MainWindow
             var item = new MenuItem { Header = name + " profile…", Tag = name }; AutomationProperties.SetName(item, name + " profile"); item.Click += (_, _) => EditProfile(name); profileCommands.Add(item); profileMenu.Items.Add(item);
         }
         applyProfile.Margin = new Thickness(0, 8, 0, 0); applyProfile.Tag = "Primary"; side.Children.Add(applyProfile); side.Children.Add(profileState);
-        side.Children.Add(SectionHeading("Mod updates")); side.Children.Add(updates); refreshCatalog.Content = "Check for updates"; side.Children.Add(refreshCatalog);
+        side.Children.Add(UpdateHeading("Mod updates", refreshCatalog, "Check for mod updates")); side.Children.Add(updates); SetButtonIcon(updates, "ArrowDownload");
         catalogStatus.FontSize = 11; catalogStatus.Margin = new Thickness(0, 2, 0, 0); side.Children.Add(catalogStatus);
-        side.Children.Add(SectionHeading("Tools")); side.Children.Add(import); side.Children.Add(undo);
-        side.Children.Add(migrate); migrate.Click += async (_, _) => await MigrateSchematicTools();
-        var settings = Button("Settings & diagnostics"); SetButtonIcon(settings, "Settings"); settings.Click += (_, _) => SettingsDialog(); utilityButtons.Add(settings); side.Children.Add(settings);
-        var help = Button("Help & documentation"); help.Click += (_, _) => Open("https://github.com/joshua-small/qsys-mod-manager#readme"); side.Children.Add(help);
-        foreach (var (button, icon) in new[] { (browse, "FolderOpen"), (refresh, "ArrowClockwise"), (refreshCatalog, "ArrowClockwise"), (import, "ArrowImport"), (undo, "ArrowUndo"), (backups, "Archive"), (checkUpdate, "ArrowSync"), (install, "ArrowDownload"), (adopt, "Settings"), (remove, "Delete"), (installUpdate, "ArrowDownload") }) SetButtonIcon(button, icon);
-        checkUpdate.Content = "Check manager update"; installUpdate.Visibility = Visibility.Collapsed; updateStatus.Text = AppIdentity.Name + " " + AppUpdate.CurrentVersion;
+        side.Children.Add(UpdateHeading("Manager updates", checkUpdate, "Check for Manager updates"));
+        installUpdate.Tag = "Primary"; side.Children.Add(installUpdate);
+        updateStatus.FontSize = 11; updateStatus.Margin = new Thickness(0, 2, 0, 0); updateStatus.SetResourceReference(TextBlock.ForegroundProperty, "Muted"); side.Children.Add(updateStatus);
+        migrate.Click += async (_, _) => await MigrateSchematicTools();
+        var help = Button("Help & documentation"); help.Click += (_, _) => Open("https://github.com/joshua-small/qsys-mod-manager#readme");
+        foreach (var action in new[] { import, undo, migrate, help })
+        {
+            var item = new MenuItem(); item.SetBinding(HeaderedItemsControl.HeaderProperty, new Binding(nameof(ContentControl.Content)) { Source = action });
+            item.SetBinding(IsEnabledProperty, new Binding(nameof(IsEnabled)) { Source = action }); item.SetBinding(VisibilityProperty, new Binding(nameof(Visibility)) { Source = action });
+            item.Click += (_, _) => action.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent)); toolsMenu.Items.Add(item);
+        }
+        foreach (var (button, icon) in new[] { (browse, "FolderOpen"), (refresh, "ArrowClockwise"), (import, "ArrowImport"), (undo, "ArrowUndo"), (backups, "Archive"), (install, "ArrowDownload"), (adopt, "Settings"), (remove, "Delete"), (installUpdate, "ArrowDownload") }) SetButtonIcon(button, icon);
+        installUpdate.Visibility = Visibility.Collapsed; updateStatus.Text = "Installed " + AppUpdate.CurrentVersion;
         var main = new DockPanel(); root.Children.Add(main); DockPanel.SetDock(notice, Dock.Top); main.Children.Add(notice);
         panes.Margin = new Thickness(0, 12, 12, 12); panes.ColumnDefinitions.Add(new()); panes.ColumnDefinitions.Add(new() { Width = new GridLength(0) }); main.Children.Add(panes); panes.Children.Add(listing);
         var filters = new DockPanel { Margin = new Thickness(0, 0, 0, 10) }; DockPanel.SetDock(filters, Dock.Top); listing.Children.Add(filters);
@@ -145,11 +166,26 @@ internal sealed partial class MainWindow
         PreviewKeyDown += (_, e) => { if (e.Key == System.Windows.Input.Key.Escape && mods.SelectedItem is not null && !busy) { mods.SelectedItem = null; mods.Focus(); e.Handled = true; } };
     }
     private static TextBlock SectionHeading(string text, double top = 20) => new() { Text = text, FontSize = 14, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, top, 0, 10) };
-    private void RefreshNotice() => notice.Visibility = busy || inspection?.Pending is not null || !string.IsNullOrWhiteSpace(message.Text) ? Visibility.Visible : Visibility.Collapsed;
-    private sealed class InstallationLabel : IValueConverter
+    private DockPanel UpdateHeading(string title, Button check, string label)
     {
-        public object Convert(object value, Type targetType, object parameter, System.Globalization.CultureInfo culture) => value is string path ? Path.GetFileName(Path.TrimEndingDirectorySeparator(path)) : "";
-        public object ConvertBack(object value, Type targetType, object parameter, System.Globalization.CultureInfo culture) => throw new NotSupportedException();
+        var row = new DockPanel { Margin = new Thickness(0, 14, 0, 6) };
+        check.Width = 32; check.MinHeight = 32; check.Padding = new Thickness(8); check.Margin = new Thickness();
+        check.Content = new System.Windows.Shapes.Path { Width = 16, Height = 16, Stretch = Stretch.Uniform, Data = (Geometry)FindResource("FluentArrowClockwise") };
+        ((System.Windows.Shapes.Path)check.Content).SetBinding(System.Windows.Shapes.Shape.FillProperty, new Binding(nameof(Control.Foreground)) { Source = check });
+        AutomationProperties.SetName(check, label); Explain(check, label); DockPanel.SetDock(check, Dock.Right); row.Children.Add(check);
+        var heading = SectionHeading(title, 0); heading.Margin = new Thickness(0); heading.VerticalAlignment = VerticalAlignment.Center; row.Children.Add(heading);
+        return row;
+    }
+    private void RefreshNotice() => notice.Visibility = busy || inspection?.Pending is not null || !string.IsNullOrWhiteSpace(message.Text) ? Visibility.Visible : Visibility.Collapsed;
+    private void RefreshInstallationLabels()
+    {
+        // An unchanged path does not notify WPF's selected-item presentation.
+        SetValue(InstallationRevisionProperty, (int)GetValue(InstallationRevisionProperty) + 1);
+    }
+    private sealed class InstallationLabel : IMultiValueConverter
+    {
+        public object Convert(object[] values, Type targetType, object parameter, System.Globalization.CultureInfo culture) => values[0] is string path ? DesignerInstallation.Read(path).Label : "";
+        public object[] ConvertBack(object value, Type[] targetTypes, object parameter, System.Globalization.CultureInfo culture) => throw new NotSupportedException();
     }
     private static Border Separator() { var b = new Border { Height = 1, Margin = new Thickness(0, 6, 0, 6) }; b.SetResourceReference(BackgroundProperty, "Divider"); return b; }
     private void ArrangeDetails()

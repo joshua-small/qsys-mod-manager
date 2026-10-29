@@ -36,9 +36,10 @@ internal static class Program
         }
         bool isolated = args.Length == 5 && args[0] is ("--smoke" or "--preview");
         bool background = args.Length == 1 && args[0] == "--background";
-        if (!isolated && !background && args.Length != 0) return 2;
+        var command = UpdateStatus.Parse(args);
+        if (!isolated && !background && command is null) return 2;
         using var instance = isolated ? null : new UserInstance();
-        if (instance is { IsFirst: false }) { if (!background) instance.Activate(); return 0; }
+        if (instance is { IsFirst: false }) { if (!background) instance.Activate(command!.Value); return 0; }
         var app = new Application { ShutdownMode = ShutdownMode.OnMainWindowClose };
         var window = new MainWindow(args.Length == 5 && args[0] is ("--smoke" or "--preview") ? Path.Combine(Path.GetFullPath(args[2]), "user-data") : null);
         if (args.Length == 5 && args[0] is ("--smoke" or "--preview"))
@@ -97,11 +98,15 @@ internal static class Program
             try { Shortcuts.Refresh(); } catch { /* A locked shortcut must not prevent startup. */ }
             app.MainWindow = window; app.ShutdownMode = ShutdownMode.OnExplicitShutdown;
             using var tray = new TrayLifetime(app, window);
-            instance!.Listen(app.Dispatcher, tray.Show);
+            using var taskbar = new TaskbarUpdates(window, TaskbarUpdates.Publish);
+            var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            instance!.Listen(app.Dispatcher, async action => { await ready.Task; await tray.RunCommand(action); });
             app.Startup += async (_, _) =>
             {
                 if (!background) tray.Show();
                 await window.Initialize(background);
+                ready.TrySetResult();
+                if (command is UpdateCommand.Manager or UpdateCommand.Mods) await tray.RunCommand(command.Value);
             };
             app.Run(); return 0;
         }
