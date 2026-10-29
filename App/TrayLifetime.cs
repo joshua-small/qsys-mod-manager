@@ -11,6 +11,8 @@ internal sealed class TrayLifetime : IDisposable
     private readonly Application app;
     private readonly MainWindow window;
     private readonly Icon icon;
+    private readonly Icon updateIcon;
+    private readonly Forms.ToolStripItem managerInstall, modInstall;
     private readonly Forms.NotifyIcon tray;
     private readonly Forms.ContextMenuStrip menu = new();
     private readonly DispatcherTimer timer;
@@ -22,21 +24,40 @@ internal sealed class TrayLifetime : IDisposable
         this.app = app; this.window = window;
         using var stream = Application.GetResourceStream(new Uri("pack://application:,,,/" + typeof(MainWindow).Assembly.GetName().Name + ";component/Assets/qmm.ico"))!.Stream;
         icon = new Icon(stream);
+        updateIcon = UpdateBadge.TrayIcon(window.Icon);
         tray = new Forms.NotifyIcon { Icon = icon, Text = AppIdentity.Name, ContextMenuStrip = menu };
         menu.Items.Add("Open QMM", null, (_, _) => Show());
+        managerInstall = menu.Items.Add("Install Manager update", null, async (_, _) => await RunCommand(UpdateCommand.Manager));
+        modInstall = menu.Items.Add("Install mod updates", null, async (_, _) => await RunCommand(UpdateCommand.Mods));
         var check = menu.Items.Add("Check for updates", null, async (_, _) => { Show(); await window.CheckAllUpdates(); window.ReviewCheckedUpdates(); });
         var launch = menu.Items.Add("Launch Designer", null, (_, _) => { if (!window.LaunchFromTray()) Show(); });
         menu.Items.Add(new Forms.ToolStripSeparator());
         var exit = menu.Items.Add("Exit", null, (_, _) => Exit());
-        menu.Opening += (_, _) => { check.Enabled = !window.WorkInProgress; launch.Enabled = window.CanLaunchFromTray; exit.Enabled = !window.ApplyingChange; };
+        menu.Opening += (_, _) => { RefreshUpdates(); check.Enabled = !window.WorkInProgress; launch.Enabled = window.CanLaunchFromTray; exit.Enabled = !window.ApplyingChange; };
         tray.MouseClick += (_, e) => { if (e.Button == Forms.MouseButtons.Left) Show(); };
         tray.BalloonTipClicked += (_, _) => { Show(); window.OpenUpdateNotification(); };
         window.Closing += Closing;
         window.Closed += Closed;
         window.UpdatesAvailable += Notify;
+        window.UpdateStateChanged += RefreshUpdates;
         app.SessionEnding += SessionEnding;
         timer = new DispatcherTimer(TimeSpan.FromMinutes(1), DispatcherPriority.Background, async (_, _) => await Tick(DateTimeOffset.UtcNow), window.Dispatcher);
-        tray.Visible = true;
+        RefreshUpdates(); tray.Visible = true;
+    }
+    private void RefreshUpdates()
+    {
+        if (disposed) return;
+        var state = window.UpdateState;
+        tray.Icon = state.HasUpdates ? updateIcon : icon;
+        string label = state.HasUpdates ? "QMM · " + state.Description : AppIdentity.Name;
+        tray.Text = label.Length <= 63 ? label : label[..60] + "…";
+        managerInstall.Visible = state.ManagerVersion is not null; managerInstall.Text = state.ManagerLabel; managerInstall.Enabled = state.CanUpdateManager;
+        modInstall.Visible = state.ModCount > 0; modInstall.Text = UpdateStatus.ModLabel(state.ModCount); modInstall.Enabled = state.CanUpdateMods;
+    }
+    internal async Task RunCommand(UpdateCommand command)
+    {
+        Show();
+        if (command != UpdateCommand.Open) await window.RunUpdateCommand(command);
     }
     internal void Show()
     {
@@ -74,7 +95,7 @@ internal sealed class TrayLifetime : IDisposable
     public void Dispose()
     {
         if (disposed) return; disposed = true;
-        timer.Stop(); window.Closing -= Closing; window.Closed -= Closed; window.UpdatesAvailable -= Notify; app.SessionEnding -= SessionEnding;
-        tray.Visible = false; tray.Dispose(); menu.Dispose(); icon.Dispose();
+        timer.Stop(); window.Closing -= Closing; window.Closed -= Closed; window.UpdatesAvailable -= Notify; window.UpdateStateChanged -= RefreshUpdates; app.SessionEnding -= SessionEnding;
+        tray.Visible = false; tray.Dispose(); menu.Dispose(); updateIcon.Dispose(); icon.Dispose();
     }
 }

@@ -81,7 +81,7 @@ internal sealed partial class MainWindow : Window
         theme.SelectionChanged += (_, _) => { try { if (theme.SelectedItem is ThemeChoice choice) themes.Select(choice.Value, !smoke); } catch (Exception e) { message.Text = "Could not save theme: " + e.Message; } };
         search.TextChanged += (_, _) => Filter(); scope.SelectionChanged += (_, _) => Filter();
         refresh.Click += (_, _) => Refresh(); target.SelectionChanged += (_, _) => { if (IsLoaded && !refreshing) Dispatcher.BeginInvoke(Refresh); };
-        browse.Click += (_, _) => { if (busy) return; var picker = new OpenFolderDialog { Title = "Choose Q-SYS Designer" }; if (picker.ShowDialog(this) is true) SelectTarget(picker.FolderName); };
+        browse.Click += (_, _) => { if (busy) return; var picker = new OpenFolderDialog { Title = "Choose Q-SYS Designer" }; if (RunDialog(() => picker.ShowDialog(this)) is true) SelectTarget(picker.FolderName); };
         mods.SelectionChanged += (_, _) => ShowMod(); versions.SelectionChanged += (_, _) => Buttons();
         install.Click += async (_, _) => await Install(); adopt.Click += async (_, _) => await Change("Adopt");
         toggle.Click += async (_, _) => await Change((mods.SelectedItem as ModRow)?.Local?.Enabled is true ? "Disable" : "Enable");
@@ -118,6 +118,8 @@ internal sealed partial class MainWindow : Window
     private void Refresh()
     {
         if (busy || refreshing) return; refreshing = true; hostHash = commonHash = null;
+        // An in-place Designer update can keep the same installation path.
+        RefreshInstallationLabels();
         try
         {
             LoadLibrary(); var engine = new Manager(target.Text); packages.AddRange(engine.CachedPackages().Where(p => !packages.Any(x => x.ArchiveHash == p.ArchiveHash))); inspection = engine.Inspect(packages); RefreshProfiles(); hostHash = inspection.Build?.HostSha256; commonHash = inspection.Build?.CommonSha256;
@@ -126,7 +128,7 @@ internal sealed partial class MainWindow : Window
             compatibility.Text = inspection.Pending is not null ? "Recovery required" : inspection.Running ? "Designer is running" : "Ready to manage mods"; compatibility.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
             if (inspection.Build?.Tested is false)
             {
-                compatibility.Text = DesignerBuild.UntestedWarning + (inspection.Pending is not null ? "\nRecovery required" : inspection.Running ? "\nDesigner is running" : "");
+                compatibility.Text = DesignerInstallation.Read(inspection.Target).Warning + (inspection.Pending is not null ? "\nRecovery required" : inspection.Running ? "\nDesigner is running" : "");
                 compatibility.SetResourceReference(TextBlock.ForegroundProperty, "Bad");
             }
             message.Text = inspection.Pending is not null ? "An interrupted change needs recovery before you can continue." : "";
@@ -199,8 +201,8 @@ internal sealed partial class MainWindow : Window
         System.Windows.Automation.AutomationProperties.SetName(repositoryLink, row is null ? "View on GitHub" : "View " + row.Name + " on GitHub");
         RefreshSidebar();
         cancel.Visibility = busy && !applying ? Visibility.Visible : Visibility.Collapsed;
-        checkUpdate.IsEnabled = !busy && !updateChecking; installUpdate.IsEnabled = !busy && !updateChecking && managerUpdate is not null;
-        availability.Text = row is null ? "" : "Installed: " + row.Installed + "\nLatest available: " + row.Available + "\n\n" + (inspection?.Build?.Tested is false ? DesignerBuild.UntestedWarning : supported ? "Verified for the tested Designer 10.5 build." : "This version is unavailable for the selected installation.");
+        checkUpdate.IsEnabled = !busy && !updateChecking && !checkingAll; installUpdate.IsEnabled = !busy && !updateChecking && !checkingAll && managerUpdate is not null;
+        availability.Text = row is null ? "" : "Installed: " + row.Installed + "\nLatest available: " + row.Available + "\n\n" + (inspection?.Build?.Tested is false ? DesignerInstallation.Read(inspection.Target).Warning : supported ? "Verified for the tested Designer build." : "This version is unavailable for the selected installation.");
         availability.SetResourceReference(TextBlock.ForegroundProperty, supported && inspection?.Build?.Tested is true ? "Muted" : "Bad");
         string? blocked = busy ? "Wait for the current operation to finish." : inspection is null ? "Choose a complete Designer installation." : inspection.Pending is not null ? "Recover the interrupted change before managing mods." : row is null ? "Select a mod first." : null;
         Explain(install, blocked ?? (choice is null ? "Choose a version first." : !supported ? "This version is not available for your Designer." : alreadyInstalled ? "This version is already installed and enabled." : "Install the selected version. Changes take effect when Designer next starts."));
@@ -240,7 +242,7 @@ internal sealed partial class MainWindow : Window
         }
         panel.Children.Add(new TextBlock { Text = details, TextWrapping = TextWrapping.Wrap, LineHeight = 23 });
         var back = Button("Cancel"); back.Tag = "Subtle"; back.IsCancel = true; var apply = Button(action); apply.Tag = "Primary"; apply.IsDefault = true; if (allowCancel) buttons.Children.Add(back); else apply.IsCancel = true; buttons.Children.Add(apply); apply.Click += (_, _) => dialog.DialogResult = true;
-        return dialog.ShowDialog() is true;
+        return RunDialog(dialog.ShowDialog) is true;
     }
     private async Task Change(string action)
     {
@@ -270,14 +272,15 @@ internal sealed partial class MainWindow : Window
     {
         if (plan.ChangedFiles.Length > 0 && !RequireDesignerClosed(plan.Target)) return;
         bool untested = plan.ExpectedBuild?.Tested is false;
+        string? buildWarning = untested ? DesignerInstallation.Read(plan.Target).Warning : null;
         var accepted = inspection?.UntestedRuntime;
         bool alreadyAccepted = accepted is { Schema: 1 } && string.Equals(accepted.Target, plan.Target, StringComparison.OrdinalIgnoreCase)
             && accepted.HostSha256 == plan.ExpectedBuild?.HostSha256 && accepted.CommonSha256 == plan.ExpectedBuild?.CommonSha256;
         if (untested && !Settings.PreviewChanges && !alreadyAccepted
             && !Confirm("Use mods on this Designer version?", "This also allows Q-SYS Mods Core to start on this untested build. Mods may not load or work correctly.", plan.Target,
-                "Continue", DesignerBuild.UntestedWarning, "Untested Designer version")) return;
+                "Continue", buildWarning, "Untested Designer version")) return;
         if (untested) detail += "\n\nContinuing allows enabled Q-SYS Mods Core to start on this untested build. Mods may not load or work correctly.";
-        if (!Preview(caption, detail, plan.Target, warning: untested ? DesignerBuild.UntestedWarning : null)) return;
+        if (!Preview(caption, detail, plan.Target, warning: buildWarning)) return;
         plan = plan with { UntestedVersionAcknowledged = untested };
         if (smoke) { message.Text = "Preview mode: no installation changes are applied."; return; }
         try
@@ -303,7 +306,7 @@ internal sealed partial class MainWindow : Window
     {
         if (busy) return;
         var picker = new OpenFileDialog { Title = "Import a mod package", Filter = "QDS mod packages (*.qdsmod)|*.qdsmod", CheckFileExists = true };
-        if (picker.ShowDialog(this) is not true) return;
+        if (RunDialog(() => picker.ShowDialog(this)) is not true) return;
         try
         {
             var package = ModPackage.Open(picker.FileName); string directory = Path.Combine(userData, "Packages"); Directory.CreateDirectory(directory);
@@ -339,13 +342,16 @@ internal sealed partial class MainWindow : Window
     private void ShowManagerRelease(ManagerRelease release)
     {
         managerUpdate = release.IsNewerThan(AppUpdate.CurrentVersion) ? release : null;
-        updateStatus.Text = managerUpdate is null ? AppIdentity.Name + " " + AppUpdate.CurrentVersion + " · Up to date" : AppIdentity.Name + " " + release.Version + " is available";
+        updateStatus.Text = "Installed " + AppUpdate.CurrentVersion + (managerUpdate is null ? " · Up to date" : "");
         installUpdate.Content = "Install " + release.Version; installUpdate.Visibility = managerUpdate is null ? Visibility.Collapsed : Visibility.Visible;
+        System.Windows.Automation.AutomationProperties.SetName(installUpdate, "Install Manager " + release.Version);
+        UpdateStateChanged?.Invoke();
     }
     private async Task InstallManagerUpdate()
     {
-        if (busy || updateChecking || managerUpdate is not { } release) return;
+        if (busy || updateChecking || checkingAll || managerUpdate is not { } release) return;
         if (!Preview("Update Q-SYS Mod Manager to " + release.Version, "Q-SYS Mod Manager will restart after installation. Your settings, mod packages and installed mods will be kept. Q-SYS Designer can stay open.", AppContext.BaseDirectory, "Update & restart")) return;
+        if (smoke) { message.Text = "Preview mode: no Manager update is downloaded or installed."; return; }
         busy = true; using var cancellation = new CancellationTokenSource(); network = cancellation; Buttons(); message.Text = "Downloading Q-SYS Mod Manager " + release.Version + "…";
         try
         {

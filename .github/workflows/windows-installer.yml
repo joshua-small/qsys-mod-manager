@@ -43,7 +43,15 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           & './artifacts/ui-dotnet/bin/QdsModManager.UiTests/release_win-x64/QdsModManager.UiTests.exe' --compatibility artifacts/ui-compatibility
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          foreach ($version in @('10.5.0','10.5.1')) {
+            dotnet build Tests/Fixtures/RunningDesigner/RunningDesigner.csproj -c Release --artifacts-path "artifacts/designer-versions/$version" "-p:Version=$version"
+            if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          }
+          & './artifacts/ui-dotnet/bin/QdsModManager.UiTests/release_win-x64/QdsModManager.UiTests.exe' --designer-version artifacts/designer-versions/10.5.0/bin/RunningDesigner/release_win-x64/RunningDesigner.dll artifacts/designer-versions/10.5.1/bin/RunningDesigner/release_win-x64/RunningDesigner.dll artifacts/ui-designer-version
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
           & './artifacts/ui-dotnet/bin/QdsModManager.UiTests/release_win-x64/QdsModManager.UiTests.exe' --tray artifacts/tray-checks
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          & './artifacts/ui-dotnet/bin/QdsModManager.UiTests/release_win-x64/QdsModManager.UiTests.exe' --updates artifacts/update-checks
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           foreach ($scenario in @('ordinary','update','session','download')) {
             & './artifacts/ui-dotnet/bin/QdsModManager.UiTests/release_win-x64/QdsModManager.UiTests.exe' --tray-shutdown $scenario "artifacts/tray-checks/$scenario"
@@ -146,5 +154,7 @@ jobs:
             artifacts/validation/**
             artifacts/ui-colors/**
             artifacts/tray-checks/**
+            artifacts/update-checks/**
+            artifacts/ui-designer-version/**
             artifacts/release/signed-uninstaller/*.exe
           if-no-files-found: error

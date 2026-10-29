@@ -5,24 +5,26 @@ namespace QdsModManager.App;
 
 internal sealed class UserInstance : IDisposable
 {
-    private readonly EventWaitHandle activate;
+    private readonly Dictionary<UpdateCommand, EventWaitHandle> commands = new();
     private readonly Mutex mutex;
-    private RegisteredWaitHandle? wait;
+    private readonly List<RegisteredWaitHandle> waits = new();
     internal bool IsFirst { get; }
     internal UserInstance(string? name = null)
     {
         name ??= @"Local\QsysModManager." + WindowsIdentity.GetCurrent().User!.Value;
         // Create the event first so a simultaneous second launch cannot lose its activation.
-        activate = new EventWaitHandle(false, EventResetMode.AutoReset, name + ".Activate");
+        foreach (var command in Enum.GetValues<UpdateCommand>())
+            commands.Add(command, new EventWaitHandle(false, EventResetMode.AutoReset, name + (command == UpdateCommand.Open ? ".Activate" : "." + command)));
         mutex = new Mutex(false, name + ".UserInterface", out bool first); IsFirst = first;
     }
-    internal void Activate() => activate.Set();
-    internal void Listen(Dispatcher dispatcher, Action show)
+    internal void Activate(UpdateCommand command = UpdateCommand.Open) => commands[command].Set();
+    internal void Listen(Dispatcher dispatcher, Action show) => Listen(dispatcher, _ => show());
+    internal void Listen(Dispatcher dispatcher, Action<UpdateCommand> run)
     {
-        wait = ThreadPool.RegisterWaitForSingleObject(activate, (_, _) =>
+        foreach (var (command, signal) in commands) waits.Add(ThreadPool.RegisterWaitForSingleObject(signal, (_, _) =>
         {
-            if (!dispatcher.HasShutdownStarted) dispatcher.BeginInvoke(show);
-        }, null, Timeout.Infinite, false);
+            if (!dispatcher.HasShutdownStarted) dispatcher.BeginInvoke(() => run(command));
+        }, null, Timeout.Infinite, false));
     }
-    public void Dispose() { wait?.Unregister(null); mutex.Dispose(); activate.Dispose(); }
+    public void Dispose() { foreach (var wait in waits) wait.Unregister(null); mutex.Dispose(); foreach (var signal in commands.Values) signal.Dispose(); }
 }

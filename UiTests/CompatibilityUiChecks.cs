@@ -29,7 +29,7 @@ internal static class CompatibilityUiChecks
             var mods = Field<DataGrid>("mods"); var scope = Field<ComboBox>("scope"); var versions = Field<ComboBox>("versions");
             var compatibility = Field<TextBlock>("compatibility");
             Check(mods.Items.Count > 0, "Untested installation loads the mod list");
-            Check(compatibility.Visibility == Visibility.Visible && compatibility.Text == DesignerBuild.UntestedWarning, "Exact untested warning remains visible in the installation panel");
+            Check(compatibility.Visibility == Visibility.Visible && compatibility.Text == "Designer version unavailable\n" + DesignerBuild.UntestedWarning, "Exact warning remains visible without guessing a version from synthetic host bytes");
             mods.SelectedIndex = 0; Pump();
             Check(Field<Button>("install").IsEnabled, "Untested catalog package can be installed");
             Check(versions.Items.Cast<VersionChoice>().All(c => c.Label.Contains("untested")), "Untested versions are labeled without claiming compatibility");
@@ -47,7 +47,7 @@ internal static class CompatibilityUiChecks
                     try
                     {
                         var labels = Descendants(dialog).OfType<TextBlock>().Select(t => t.Text).ToArray();
-                        Check(labels.Contains(DesignerBuild.UntestedWarning), "Change preview shows the exact warning before " + (accept ? "confirmation" : "cancellation"));
+                        Check(labels.Any(label => label.Contains(DesignerBuild.UntestedWarning)), "Change preview shows the exact warning before " + (accept ? "confirmation" : "cancellation"));
                         Check(labels.Contains(target), "Warning preview identifies the selected installation");
                     }
                     catch (Exception error) { callbackError = error; }
@@ -59,7 +59,7 @@ internal static class CompatibilityUiChecks
             }
             Check(Field<TextBlock>("message").Text.StartsWith("Preview mode:"), "Confirmed warning continues to execution in smoke mode");
             window.SmokeSetup("Dark", Catalog.Current); window.SelectTarget(target); Pump();
-            Check(compatibility.Visibility == Visibility.Visible && compatibility.Text == DesignerBuild.UntestedWarning, "Warning survives dark theme and refresh");
+            Check(compatibility.Visibility == Visibility.Visible && compatibility.Text == "Designer version unavailable\n" + DesignerBuild.UntestedWarning, "Warning survives dark theme and refresh");
             File.Delete(Path.Combine(target, "ModuleCommon.dll")); window.SelectTarget(target); Pump();
             Check(!Field<Button>("install").IsEnabled && compatibility.Text.Contains("incomplete"), "Missing Designer file still blocks UI installation");
             File.WriteAllBytes(Path.Combine(output, "checks.json"), Data.Bytes(checks));
