@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text;
+using System.IO.Compression;
 using QdsModManager;
 using QdsModManager.CatalogPublishing;
 
@@ -45,6 +46,21 @@ Reject(() => Contract.Validate(record with { ReleaseNotes = new string('x', 1200
 Reject(() => Contract.Validate(record with { Release = release with { HostSha256 = new string('0', 64) } }), "Unsupported Designer binary rejected");
 Reject(() => Contract.Validate(record with { Release = release with { CommonSha256 = new string('0', 64) } }), "Unsupported common binary rejected");
 Reject(() => Contract.Validate(record with { Release = release with { DesignerVersion = "11" } }), "Unsupported Designer version rejected");
+var exactPath = Path.Combine(fixture, "exact-1051.qdsmod");
+var exactManifest = package.Manifest with { Schema = 2, HostSha256 = PackageCompatibility.Host1051, CommonSha256 = PackageCompatibility.Common1051,
+    Files = package.Manifest.Files.Where(f => f.Name != Catalog.Mod(package.Manifest.Id).LegacyMarker).ToArray() };
+using (var zip = ZipFile.Open(exactPath, ZipArchiveMode.Create))
+{
+    using (var entry = zip.CreateEntry("manifest.json").Open()) entry.Write(Data.Bytes(exactManifest));
+    foreach (var file in exactManifest.Files) using (var entry = zip.CreateEntry("payload/" + file.Name).Open()) entry.Write(package.Files[file.Name]);
+}
+var exactRecord = Contract.Publish(repository, tag, commit, fixture, exactPath, "exact-1051.qdsmod");
+Check(exactRecord.Release.DesignerVersion == "10.5.1" && exactRecord.Release.HostSha256 == PackageCompatibility.Host1051, "Publishing derives exact 10.5.1 label from verified package, never historical 10.5");
+Contract.Package(exactRecord, exactPath); checks.Add("10.5.1 descriptor and package independently verify together");
+Reject(() => Contract.Validate(exactRecord with { Release = exactRecord.Release with { DesignerVersion = "10.5" } }), "Publishing rejects mislabeled 10.5.1 descriptor");
+Reject(() => Contract.Validate(exactRecord with { Release = exactRecord.Release with { CommonSha256 = Catalog.CommonHash } }), "Publishing rejects mixed target descriptor");
+Reject(() => Contract.Package(exactRecord, package.Path), "10.5.1 descriptor cannot substitute a 10.5.0 archive");
+Reject(() => Generator.Merge(index, presentation, new(1, []), [exactRecord]), "Existing version cannot be retargeted to 10.5.1 or replace its immutable archive");
 Reject(() => Contract.Validate(record with { Release = release with { Version = Version.Parse(release.Version).ToString(3) } }), "Noncanonical version aliases rejected");
 Reject(() => Contract.Validate(record with { Release = release with { Url = release.Url.Replace(repository, "attacker/repo") } }), "Foreign package rejected");
 Reject(() => Contract.Package(record with { Release = release with { Sha256 = new string('0', 64) } }, package.Path), "Mismatched package hash rejected");

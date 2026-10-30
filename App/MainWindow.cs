@@ -21,9 +21,10 @@ internal sealed record ModRow(string Id, string Name, string Installed, string A
     public string PrimaryLabel => Local?.Managed is true ? (Local.Enabled ? "Disable " : "Enable ") + Name : Local?.Status == "Installed · not managed yet" ? "Manage existing " + Name : "Install " + Name;
     public string RemoveLabel => "Remove " + Name;
     public bool CanManage { get; init; }
+    public bool CanEnable { get; init; } = true;
     public bool Selected { get; set; }
     public string SelectionLabel => "Select " + Name;
-    public bool PrimaryEnabled => CanManage && Available != "—" && Local?.Status is not ("Unrecognized installed files" or "Files changed outside manager") && Status != "Not compatible";
+    public bool PrimaryEnabled => CanManage && (Local?.Managed is true && Local.Enabled || CanEnable && Available != "—") && Local?.Status is not ("Unrecognized installed files" or "Files changed outside manager") && Status != "Not compatible";
     public bool RemoveEnabled => CanManage && Local?.Managed is true;
     public Geometry PrimaryIcon => (Geometry)Application.Current.FindResource("Fluent" + (Local?.Managed is true ? Local.Enabled ? "Prohibited" : "CheckmarkCircle" : Local?.Status == "Installed · not managed yet" ? "Settings" : "ArrowDownload"));
 }
@@ -105,7 +106,9 @@ internal sealed partial class MainWindow : Window
     private static void Open(string path) => Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
     internal void SelectTarget(string path) { refreshing = true; if (!target.Items.Contains(path)) target.Items.Add(path); target.SelectedItem = path; refreshing = false; Refresh(); }
     private bool IsCompatible(CatalogRelease release) => OnlineCatalog.Compatible(release, hostHash, commonHash);
-    private bool CanInstall(CatalogRelease release) => inspection is not null && OnlineCatalog.Compatible(release, Catalog.HostHash, Catalog.CommonHash);
+    private bool CanInstall(CatalogRelease release) => inspection is not null && PackageCompatibility.CanUse(release.HostSha256, release.CommonSha256, hostHash, commonHash);
+    private bool CanInstall(ModPackage package) => inspection is not null && PackageCompatibility.CanUse(package.Manifest.HostSha256, package.Manifest.CommonSha256, hostHash, commonHash);
+    private bool IsCompatible(ModPackage package) => PackageCompatibility.Exact(package.Manifest.HostSha256, package.Manifest.CommonSha256, hostHash, commonHash);
     private void LoadLibrary()
     {
         packages.Clear(); var errors = new List<string>();
@@ -145,12 +148,14 @@ internal sealed partial class MainWindow : Window
         {
             var local = inspection?.Mods.FirstOrDefault(m => m.Id == mod.Id); var remote = snapshot?.Document.Mods.FirstOrDefault(m => m.Id == mod.Id);
             var release = remote?.Releases.Where(CanInstall).OrderByDescending(r => Version.Parse(r.Version)).FirstOrDefault();
-            string available = release?.Version ?? packages.Where(p => p.Manifest.Id == mod.Id).OrderByDescending(p => Version.Parse(p.Manifest.Version)).FirstOrDefault()?.Manifest.Version ?? "—";
+            string available = release?.Version ?? packages.Where(p => p.Manifest.Id == mod.Id && CanInstall(p)).OrderByDescending(p => Version.Parse(p.Manifest.Version)).FirstOrDefault()?.Manifest.Version ?? "—";
             string status = local?.Status ?? "Not compatible";
             if (local?.Managed is true && status != "Files changed outside manager" && release is not null && Version.Parse(release.Version) > Version.Parse(local.Version))
                 status = Manager.RequiresSchematicToolsMigration(mod.Id, local.Version, release.Version) ? "Split migration available" : "Update available";
-            return new ModRow(mod.Id, mod.Name, local?.Version ?? "—", available, status, local, remote) { Selected = selectedModIds.Contains(mod.Id), Thumbnail = thumbnails.GetValueOrDefault(mod.Id) ?? Icon, CanManage = inspection is not null && inspection.Pending is null && !inspection.Suspended };
-        }).Where(row => (scope.SelectedIndex switch { 1 => inspection?.Build?.Tested is true && (row.Remote is null || row.Remote.Releases.Any(IsCompatible) || packages.Any(p => p.Manifest.Id == row.Id)), 2 => row.Local?.Managed is true || row.Local?.Enabled is true, 3 => row.Local?.Managed is true && row.Local.Enabled, 4 => row.Local?.Managed is true && row.Local.Enabled is false, 5 => row.Status == "Update available", _ => true })
+            var pin = inspection?.Profile?.Mods.FirstOrDefault(p => p.Id == mod.Id);
+            bool canEnable = pin is null || packages.Any(p => p.ArchiveHash == pin.Sha256 && CanInstall(p));
+            return new ModRow(mod.Id, mod.Name, local?.Version ?? "—", available, status, local, remote) { Selected = selectedModIds.Contains(mod.Id), Thumbnail = thumbnails.GetValueOrDefault(mod.Id) ?? Icon, CanManage = inspection is not null && inspection.Pending is null && !inspection.Suspended, CanEnable = canEnable };
+        }).Where(row => (scope.SelectedIndex switch { 1 => inspection is not null && (row.Remote?.Releases.Any(IsCompatible) is true || packages.Any(p => p.Manifest.Id == row.Id && IsCompatible(p))), 2 => row.Local?.Managed is true || row.Local?.Enabled is true, 3 => row.Local?.Managed is true && row.Local.Enabled, 4 => row.Local?.Managed is true && row.Local.Enabled is false, 5 => row.Status == "Update available", _ => true })
             && OnlineCatalog.Matches(row.Remote ?? new(row.Id, row.Name, Catalog.Mod(row.Id).Description, OnlineCatalog.Repository(row.Id), Array.Empty<CatalogRelease>()), search.Text)).OrderBy(r => r.Name, StringComparer.OrdinalIgnoreCase).ToArray();
         mods.ItemsSource = rows; mods.SelectedItem = rows.FirstOrDefault(m => m.Id == selected); ShowMod();
         emptyList.Visibility = rows.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
@@ -170,8 +175,8 @@ internal sealed partial class MainWindow : Window
             choices.Add(new(release.Version + (CanInstall(release) ? (package is null ? " · download" : " · downloaded") + (IsCompatible(release) ? "" : " · untested") : " · incompatible"), release.Version, package, release, remote));
         }
         foreach (var package in packages.Where(p => p.Manifest.Id == row?.Id && !choices.Any(c => c.Package?.ArchiveHash == p.ArchiveHash)))
-            choices.Add(new(package.Manifest.Version + " · local" + (inspection?.Build?.Tested is false ? " · untested" : ""), package.Manifest.Version, package, null, null));
-        var ordered = choices.OrderByDescending(c => c.Release is null ? inspection is not null : CanInstall(c.Release)).ThenByDescending(c => Version.Parse(c.Version)).ToArray();
+            choices.Add(new(package.Manifest.Version + " · local" + (!CanInstall(package) ? " · incompatible" : !IsCompatible(package) ? " · untested" : ""), package.Manifest.Version, package, null, null));
+        var ordered = choices.OrderByDescending(c => c.Release is null ? c.Package is not null && CanInstall(c.Package) : CanInstall(c.Release)).ThenByDescending(c => Version.Parse(c.Version)).ToArray();
         ShowPresentation(row);
         versions.ItemsSource = ordered; versions.SelectedItem = row?.Local?.Managed is false ? ordered.FirstOrDefault(c => c.Version == row.Local.Version) ?? ordered.FirstOrDefault() : ordered.FirstOrDefault(); Buttons();
     }
@@ -181,16 +186,17 @@ internal sealed partial class MainWindow : Window
         migrate.IsEnabled = !busy && inspection is { Pending: null };
         var row = mods.SelectedItem as ModRow; var choice = versions.SelectedItem as VersionChoice;
         bool ready = !busy && inspection is not null && inspection.Pending is null && !inspection.Suspended;
-        bool supported = choice is not null && (choice.Release is null ? inspection is not null : CanInstall(choice.Release));
+        bool supported = choice is not null && (choice.Release is null ? choice.Package is not null && CanInstall(choice.Package) : CanInstall(choice.Release));
         bool alreadyInstalled = row?.Local?.Managed is true && row.Local.Enabled && row.Local.Version == choice?.Version
             && inspection?.Profile?.Mods.FirstOrDefault(p => p.Id == row.Id)?.Sha256 == (choice?.Package?.ArchiveHash ?? choice?.Release?.Sha256);
         install.Content = alreadyInstalled ? "Installed" : choice?.Package is null ? "Download & install" : row?.Local?.Managed is true ? "Install version" : "Install";
         SetButtonIcon(install, alreadyInstalled ? "Checkmark" : "ArrowDownload");
         install.IsEnabled = ready && supported && !alreadyInstalled;
         install.Visibility = alreadyInstalled ? Visibility.Collapsed : Visibility.Visible;
-        adopt.IsEnabled = ready && row?.Local?.Managed is false && row.Local.Status == "Installed · not managed yet" && choice?.Package is not null;
+        adopt.IsEnabled = ready && supported && row?.Local?.Managed is false && row.Local.Status == "Installed · not managed yet" && choice?.Package is not null;
         adopt.Visibility = row?.Local?.Managed is false && row.Local.Status == "Installed · not managed yet" ? Visibility.Visible : Visibility.Collapsed;
         toggle.IsEnabled = remove.IsEnabled = ready && row?.Local?.Managed is true; toggle.Content = row?.Local?.Enabled is true ? "Disable" : "Enable";
+        if (row?.Local?.Enabled is false && !row.CanEnable) toggle.IsEnabled = false;
         toggle.Visibility = remove.Visibility = row?.Local?.Managed is true ? Visibility.Visible : Visibility.Collapsed;
         SetButtonIcon(toggle, row?.Local?.Enabled is true ? "Prohibited" : "CheckmarkCircle");
         undo.Content = inspection?.Pending is not null ? "Recover interrupted change" : "Undo last change"; undo.IsEnabled = !busy && inspection is not null && (inspection.Pending is not null || inspection.CanUndo);
@@ -202,7 +208,10 @@ internal sealed partial class MainWindow : Window
         RefreshSidebar();
         cancel.Visibility = busy && !applying ? Visibility.Visible : Visibility.Collapsed;
         checkUpdate.IsEnabled = !busy && !updateChecking && !checkingAll; installUpdate.IsEnabled = !busy && !updateChecking && !checkingAll && managerUpdate is not null;
-        availability.Text = row is null ? "" : "Installed: " + row.Installed + "\nLatest available: " + row.Available + "\n\n" + (inspection?.Build?.Tested is false ? DesignerInstallation.Read(inspection.Target).Warning : supported ? "Verified for the tested Designer build." : "This version is unavailable for the selected installation.");
+        string? packageTarget = choice is null ? null : PackageCompatibility.Version(choice.Package?.Manifest.HostSha256 ?? choice.Release?.HostSha256, choice.Package?.Manifest.CommonSha256 ?? choice.Release?.CommonSha256);
+        availability.Text = row is null ? "" : "Installed: " + row.Installed + "\nLatest available: " + row.Available
+            + (packageTarget is null ? "" : "\nPackage target: Designer " + packageTarget)
+            + "\n\n" + (!supported ? "This version is unavailable for the selected installation." : inspection?.Build?.Tested is false ? DesignerInstallation.Read(inspection.Target).Warning : "Verified for the tested Designer build.");
         availability.SetResourceReference(TextBlock.ForegroundProperty, supported && inspection?.Build?.Tested is true ? "Muted" : "Bad");
         string? blocked = busy ? "Wait for the current operation to finish." : inspection is null ? "Choose a complete Designer installation." : inspection.Pending is not null ? "Recover the interrupted change before managing mods." : row is null ? "Select a mod first." : null;
         Explain(install, blocked ?? (choice is null ? "Choose a version first." : !supported ? "This version is not available for your Designer." : alreadyInstalled ? "This version is already installed and enabled." : "Install the selected version. Changes take effect when Designer next starts."));
