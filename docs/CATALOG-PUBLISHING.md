@@ -14,6 +14,12 @@ Definitions contain the mod's identity, repository, module and exact allowed fil
 
 ## Activation and history
 
+Package compatibility recognizes two complete host/common hash pairs: Designer 10.5.0 and 10.5.1. Unknown pairs and mixtures of the two builds are rejected, including inside signed feeds. Schema-1 packages retain the original 10.5.0 declaration and marker contract. Schema-2/3 packages can declare either recognized exact pair. This does not extend existing packages' compatibility: historical 10.5.0 packages keep their explicit untested-build opt-in route, while 10.5.1 packages require the exact 10.5.1 target whenever enabled. Consent cannot override this requirement.
+
+Publishing derives `designerVersion: "10.5.1"` from a verified 10.5.1 package. Historical 10.5.0 descriptors keep `"10.5"` so existing immutable records do not change; an explicit `"10.5.0"` also identifies that pair. A 10.5.1 package labeled `"10.5"` or `"10.5.0"` is invalid. A new build target requires a new release version; old version pins and archives cannot be replaced. The packer's optional final `10.5.0|10.5.1` argument selects the declared exact target; omission preserves its existing 10.5.0 default. This declaration does not inspect or qualify a mod's runtime behavior.
+
+The package and feed schemas, signing key and approval-layout contract are unchanged. Upgrade QMM and pin the collector/publisher tools to a release with exact 10.5.1 support before delivering these packages. Released QMM 0.11.0 has been verified to read a mixed 10.5.0/10.5.1 feed while retaining existing releases and excluding the new target from installation. It cannot manage profiles containing the new target. Compatibility is not guaranteed for every earlier manager; for example, 0.7.0 does not support schema-3 approvals already used by the current catalog.
+
 Schema 2 has no enable markers and does not require Harmony for every mod. The manager uses the actual private files in each verified manifest when enabling, disabling, removing, suspending or applying profiles.
 
 Schema-1 packages remain supported for exact historical restoration. Their legacy markers are removed during a managed upgrade to schema 2, including grouped updates and disabled profile entries. Preview/cancel, rollback, recovery and undo retain the old package's complete file set. Unmanaged markers are preserved. Journals use their original file set so adding a catalog definition does not invalidate earlier recovery or undo.

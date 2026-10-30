@@ -146,7 +146,8 @@ public sealed class Manager
             if (state.Mods.TryGetValue(mod.Id, out var entry))
             {
                 var package = Stored(entry); bool enabled = entry.Enabled && !state.Suspended; bool intact = package.Manifest.Files.Where(f => !f.Shared).All(f => current[f.Name] == (enabled ? f.Sha256 : null));
-                return new ModStatus(mod.Id, mod.Name, entry.Version, !intact ? "Files changed outside manager" : state.Suspended && entry.Enabled ? "Suspended" : enabled ? "Enabled" : "Disabled", true, enabled, mod.Description);
+                bool compatible = PackageCompatibility.CanUse(package.Manifest.HostSha256, package.Manifest.CommonSha256, build.HostSha256, build.CommonSha256);
+                return new ModStatus(mod.Id, mod.Name, entry.Version, !intact ? "Files changed outside manager" : state.Suspended && entry.Enabled ? "Suspended" : enabled && !compatible ? "Requires Designer " + PackageCompatibility.Version(package.Manifest.HostSha256, package.Manifest.CommonSha256) : enabled ? "Enabled" : "Disabled", true, enabled, mod.Description);
             }
             var match = available.FirstOrDefault(p => p.Manifest.Id == mod.Id && p.Manifest.Files.All(f => current[f.Name] == f.Sha256));
             bool present = mod.Layouts.SelectMany(l => l.Files).Where(f => !f.Shared).Any(f => current[f.Name] is not null);
@@ -177,7 +178,9 @@ public sealed class Manager
             var last = Journals().FirstOrDefault(j => j.Status == "Complete") ?? throw new InvalidOperationException("No previous change is available.");
             if (last.AfterStamp != JournalStamp(last)) throw new InvalidOperationException("The installation changed after the last operation; undo will not overwrite it.");
             foreach (var (name, hash) in last.Before) if (current[name] != hash) files[name] = Object(hash);
-            return new(last.BeforeState is null ? null : Data.Read<RegistryState>(Object(last.BeforeState)!), files, null);
+            var restored = last.BeforeState is null ? null : Data.Read<RegistryState>(Object(last.BeforeState)!);
+            if (restored is not null) ValidatePackageTargets(restored, []);
+            return new(restored, files, null);
         }
         if (state.Suspended) throw new InvalidOperationException("Turn managed mods on before changing individual mods.");
         var profile = AppliedProfile(state);
@@ -216,6 +219,7 @@ public sealed class Manager
             default: throw new InvalidDataException("Unsupported manager action.");
         }
         state = state with { Schema = 2, Profile = profile with { Mods = ModProfile.Create(profile.Name, state.Mods.Values).Mods } };
+        state = state with { Profile = state.Profile.ForPackages(state.Mods.Values.Select(m => package?.ArchiveHash == m.ArchiveHash ? package.Manifest : Stored(m).Manifest)) };
         ValidateDependencies(state, package is null ? [] : [package]);
         return new(state, files, package);
     }
@@ -248,11 +252,22 @@ public sealed class Manager
             foreach (var file in Stored(previous).Manifest.Files.Where(f => !f.Shared))
                 if (!resolved.Any(p => p.Manifest.Id == previous.Id && p.Files.ContainsKey(file.Name)) && current[file.Name] is not null) files[file.Name] = null;
         var next = new RegistryState(2, desired, group.Profile, group.Suspended);
+        var expectedProfile = group.Profile.ForPackages(resolved.Select(p => p.Manifest));
+        if (group.Profile.HostSha256 != expectedProfile.HostSha256 || group.Profile.CommonSha256 != expectedProfile.CommonSha256)
+            throw new InvalidDataException("Profile compatibility disagrees with its exact package pins. Prepare the profile again.");
         ValidateDependencies(next, resolved);
         return new(next, files, null, resolved.ToArray());
     }
+    private void ValidatePackageTargets(RegistryState desired, IEnumerable<ModPackage> incoming)
+    {
+        if (desired.Suspended) return;
+        var available = incoming.ToDictionary(p => p.ArchiveHash); var build = Host();
+        foreach (var mod in desired.Mods.Values.Where(m => m.Enabled))
+            PackageCompatibility.Require((available.TryGetValue(mod.ArchiveHash, out var package) ? package : Stored(mod)).Manifest, build);
+    }
     private void ValidateDependencies(RegistryState desired, IEnumerable<ModPackage> incoming)
     {
+        ValidatePackageTargets(desired, incoming);
         var available = incoming.ToDictionary(p => p.ArchiveHash);
         var manifests = desired.Mods.Values.Where(m => m.Enabled).Select(m => available.TryGetValue(m.ArchiveHash, out var package) ? package.Manifest : Stored(m).Manifest).ToArray();
         Requirements.Validate(manifests);
@@ -265,10 +280,12 @@ public sealed class Manager
         => PrepareInstall([selected], available);
     public OperationPlan PrepareInstall(IEnumerable<ModPackage> selected, IEnumerable<ModPackage> available)
     {
-        Host(); var state = State();
+        var build = Host(); var state = State();
         if (state.Suspended) throw new InvalidOperationException("Turn managed mods on before installing a mod.");
         var existing = state.Mods.Values.Select(m => (Package: Stored(m), m.Enabled)).ToArray();
-        var resolved = Requirements.Resolve(existing, selected, available);
+        var requested = selected.ToArray();
+        foreach (var package in requested) PackageCompatibility.Require(package.Manifest, build);
+        var resolved = Requirements.Resolve(existing, requested, available.Where(p => PackageCompatibility.CanUse(p.Manifest.HostSha256, p.Manifest.CommonSha256, build.HostSha256, build.CommonSha256)));
         var mods = state.Mods.Values.ToDictionary(m => m.Id);
         foreach (var package in resolved) mods[package.Manifest.Id] = new(package.Manifest.Id, package.Manifest.Version, package.ArchiveHash, true);
         var profile = AppliedProfile(state) with { Mods = ModProfile.Create("", mods.Values).Mods };
@@ -282,7 +299,9 @@ public sealed class Manager
         Host(); var state = State();
         if (!state.Mods.TryGetValue("schematic-tools", out var old) || Version.Parse(old.Version) >= new Version(0,17,0))
             throw new InvalidOperationException("Choose an installation with a managed legacy Schematic Tools bundle.");
-        var packages = available.Concat(state.Mods.Values.Select(Stored)).DistinctBy(p => p.ArchiveHash).ToArray();
+        var build = Host();
+        var packages = available.Concat(state.Mods.Values.Select(Stored)).DistinctBy(p => p.ArchiveHash)
+            .Where(p => PackageCompatibility.CanUse(p.Manifest.HostSha256, p.Manifest.CommonSha256, build.HostSha256, build.CommonSha256)).ToArray();
         var mods = state.Mods.Values.Where(m => m.Id != "schematic-tools").ToDictionary(m => m.Id);
         foreach (var id in SchematicToolsReplacementIds)
         {
@@ -297,7 +316,10 @@ public sealed class Manager
     public OperationPlan PrepareProfile(ModProfile profile, IEnumerable<ModPackage> packages, bool suspended = false, string action = "Profile")
     {
         if (action is not ("Profile" or "Updates" or "Suspend" or "Resume" or "InstallSet" or "Migration")) throw new InvalidDataException("Unsupported grouped action.");
+        profile.RequireCompatible();
         var available = packages.ToArray();
+        profile = profile.ForPackages(profile.Mods.Select(pin => available.FirstOrDefault(p => p.ArchiveHash == pin.Sha256)?.Manifest
+            ?? throw new InvalidOperationException("Missing exact package: " + pin.Id + " " + pin.Version)));
         var group = new ProfileChange(profile, profile.Mods.Select(pin => { var p = available.FirstOrDefault(p => p.ArchiveHash == pin.Sha256) ?? throw new InvalidOperationException("Missing exact package: " + pin.Id + " " + pin.Version); return new ProfilePackage(pin.Id, p.Path, p.ArchiveHash); }).ToArray(), suspended);
         var change = BuildGroup(group);
         return new(2, action, root, "", null, null, Stamp(), change.Files.Keys.ToArray(), group, Catalog.Proof, Host());
@@ -366,6 +388,7 @@ public sealed class Manager
     private ApplyResult Recover(DesignerBuild build)
     {
         var pending = Journals().Single(j => j.Status == "Pending");
+        if (pending.BeforeState is not null) ValidatePackageTargets(Data.Read<RegistryState>(Object(pending.BeforeState)!), []);
         if (pending.Before.Any(k => k.Value != pending.After[k.Key]) && running(root)) throw new InvalidOperationException("Close this QDS installation before recovering its files.");
         Rollback(pending, build); SaveJournal(pending with { Status = "RolledBack", Error = "Recovered an interrupted operation." });
         return new(true, "Interrupted change recovered from verified backups.", pending.Id);

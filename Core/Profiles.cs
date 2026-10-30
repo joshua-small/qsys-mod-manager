@@ -9,11 +9,18 @@ public sealed record ModProfile(int Schema, string Id, string Name, string Desig
     public void Validate()
     {
         if (Schema != 1 || !Guid.TryParseExact(Id, "N", out _) || string.IsNullOrWhiteSpace(Name) || Name.Length > 100 || Name.Any(char.IsControl)
-            || Mods is null || Mods.Length > Catalog.Mods.Length || Mods.Select(m => m.Id).Distinct().Count() != Mods.Length || DesignerVersion != "10.5") throw new InvalidDataException("Invalid or unsupported profile.");
+            || Mods is null || Mods.Length > Catalog.Mods.Length || Mods.Select(m => m.Id).Distinct().Count() != Mods.Length
+            || !PackageCompatibility.LabelMatches(DesignerVersion, HostSha256, CommonSha256)) throw new InvalidDataException("Invalid or unsupported profile.");
         Data.CheckHash(HostSha256); Data.CheckHash(CommonSha256);
         foreach (var mod in Mods) { Catalog.Mod(mod.Id); Data.CheckHash(mod.Sha256); if (!Version.TryParse(mod.Version, out var v) || v.Build < 0) throw new InvalidDataException("Invalid pinned version."); }
     }
-    public void RequireCompatible() { Validate(); if (HostSha256 != Catalog.HostHash || CommonSha256 != Catalog.CommonHash) throw new InvalidDataException("Profile requires a different Designer build."); }
+    public void RequireCompatible() => Validate();
+    internal ModProfile ForPackages(IEnumerable<PackageManifest> packages)
+    {
+        bool exact1051 = packages.Any(p => !PackageCompatibility.Legacy(p.HostSha256, p.CommonSha256));
+        return this with { DesignerVersion = exact1051 ? "10.5.1" : "10.5", HostSha256 = exact1051 ? PackageCompatibility.Host1051 : Catalog.HostHash,
+            CommonSha256 = exact1051 ? PackageCompatibility.Common1051 : Catalog.CommonHash };
+    }
     public static ModProfile Import(string path)
     {
         if (new FileInfo(path).Length > 65536) throw new InvalidDataException("Profile is too large.");

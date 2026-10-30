@@ -6,6 +6,7 @@ using QdsModManager;
 if (args.Length == 5 && args[0] == "--create-fixtures") { PackageFixtures.Create(args[1], args[2], args[3], args[4]); return; }
 if (args.Length == 4 && args[0] == "--dependency-tests") { DependencyChecks.Run(args[1], args[2], args[3]); return; }
 if (args.Length == 4 && args[0] == "--install-flow-tests") { InstallFlowChecks.Run(args[1], args[2], args[3]); return; }
+if (args.Length == 4 && args[0] == "--exact-host-tests") { ExactHostChecks.Run(args[1], args[2], args[3]); return; }
 if (args.Length == 4 && args[0] == "--self-update-tests") { await SelfUpdateTests.Run(args[1], args[2], args[3]); return; }
 if (args.Length == 6 && args[0] == "--legacy-migration") { SelfUpdateTests.Legacy(args[1], args[2], args[3], args[4], args[5]); return; }
 if (args.Length == 3 && args[0] == "--self-update-crash")
@@ -188,6 +189,7 @@ BadPackage("unsupported-file-rejected", zip =>
     using var target = zip.CreateEntry("manifest.json").Open(); target.Write(Data.Bytes(manifest));
 });
 await CatalogChecks.Run(latest, output, checks);
+ExactPackageChecks.Run(output, latest, host, common, checks);
 ProfileChecks.Run(output, old, latest, geometry, host, common, checks);
 ApprovalChecks.Run(output, latest, geometry, host, common, checks);
 File.WriteAllBytes(Path.Combine(output, "result.json"), Data.Bytes(new { status = "complete", checks }));

@@ -36,6 +36,8 @@ public sealed class OnlineCatalog : IDisposable
                 if (!Version.TryParse(release.Version, out var version) || version.Build < 0 || release.DesignerVersion.Length > 40 || release.Size is < 1 or > PackageLimit)
                     throw new InvalidDataException("Invalid catalog version.");
                 Data.CheckHash(release.Sha256); Data.CheckHash(release.HostSha256); Data.CheckHash(release.CommonSha256);
+                if (!PackageCompatibility.LabelMatches(release.DesignerVersion, release.HostSha256, release.CommonSha256))
+                    throw new InvalidDataException("Unrecognized exact Designer package target or mismatched version label.");
                 if (!Uri.TryCreate(release.Url, UriKind.Absolute, out var uri) || uri.Scheme != "https" || uri.Host != "github.com" || !uri.IsDefaultPort
                     || uri.UserInfo.Length > 0 || uri.Query.Length > 0 || uri.Fragment.Length > 0
                     || !uri.AbsolutePath.StartsWith("/" + mod.Repository + "/releases/download/", StringComparison.Ordinal)
@@ -45,7 +47,7 @@ public sealed class OnlineCatalog : IDisposable
         return document;
     }
     public static bool Compatible(CatalogRelease release, string? host, string? common) =>
-        release.HostSha256 == Catalog.HostHash && release.CommonSha256 == Catalog.CommonHash && release.HostSha256 == host && release.CommonSha256 == common;
+        PackageCompatibility.Exact(release.HostSha256, release.CommonSha256, host, common);
     public static bool Matches(CatalogItem item, string query) => query.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
         .All(term => (item.Name + " " + item.Description).Contains(term, StringComparison.OrdinalIgnoreCase));
     public async Task<CatalogSnapshot> Fetch(CancellationToken cancellation)

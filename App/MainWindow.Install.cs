@@ -30,7 +30,7 @@ internal sealed partial class MainWindow
         foreach (var item in snapshot?.Document.Mods ?? [])
             foreach (var release in item.Releases.Where(CanInstall))
                 choices.Add(new(release.Version, release.Version, packages.FirstOrDefault(p => p.ArchiveHash == release.Sha256), release, item));
-        foreach (var package in packages.Where(p => !choices.Any(c => ChoiceKey(c) == p.ArchiveHash)))
+        foreach (var package in packages.Where(p => CanInstall(p) && !choices.Any(c => ChoiceKey(c) == p.ArchiveHash)))
             choices.Add(new(package.Manifest.Version, package.Manifest.Version, package, null, null));
         return choices.ToArray();
     }

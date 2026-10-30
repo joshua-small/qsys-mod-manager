@@ -88,7 +88,8 @@ public sealed class ModPackage
         var manifest = Data.Read<PackageManifest>(Read(zip.GetEntry("manifest.json") ?? throw new InvalidDataException("Missing manifest."), 65536));
         var mod = Catalog.Mod(manifest.Id);
         if (manifest.Schema is not (1 or 2 or 3) || manifest.Name != mod.Name || !Version.TryParse(manifest.Version, out var version) || version.Build < 0
-            || manifest.HostSha256 != Catalog.HostHash || manifest.CommonSha256 != Catalog.CommonHash || manifest.Description.Length > 4000)
+            || PackageCompatibility.Version(manifest.HostSha256, manifest.CommonSha256) is null
+            || (manifest.Schema == 1 && !PackageCompatibility.Legacy(manifest.HostSha256, manifest.CommonSha256)) || manifest.Description.Length > 4000)
             throw new InvalidDataException("Unsupported package identity, version or Designer compatibility.");
         var layout = mod.Layouts.SingleOrDefault(l => l.Schema == manifest.Schema && (l.MinimumVersion is null || Requirements.Matches(new(mod.Id,l.MinimumVersion,l.BeforeVersion),manifest.Version))
             && manifest.Files.Select(f => f.Name).Order().SequenceEqual(l.Files.Select(f => f.Name).Order()))

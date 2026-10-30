@@ -18,6 +18,7 @@ internal static class Program
         if (args.Length >= 2 && args[0] == "--shell-preview") return ShellPreview.Run(args[1], args.Skip(2).ToArray());
         if (args.Length == 2 && args[0] == "--shell-fixture-check") return ShellPreview.Run(args[1], [], true);
         if (args.Length == 2 && args[0] == "--compatibility") return CompatibilityUiChecks.Run(args[1]);
+        if (args.Length == 3 && args[0] == "--exact-target") return ExactTargetUiChecks.Run(args[1], args[2]);
         if (args.Length == 4 && args[0] == "--designer-version") return DesignerVersionChecks.Run(args[1], args[2], args[3]);
         if (args.Length == 4 && args[0] == "--install-flow") return InstallFlowUiChecks.Run(args[1], args[2], args[3]);
         if (args.Length == 2 && args[0] == "--tray") return TrayChecks.Run(args[1]);

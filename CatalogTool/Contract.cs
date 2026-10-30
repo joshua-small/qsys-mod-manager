@@ -42,7 +42,7 @@ public static partial class Contract
         Data.CheckHash(record.ThumbnailSha256);
         var release = record.Release;
         if (record.Schema != 1 || Normalize(Version.Parse(record.Tag.TrimStart('v'))).ToString() != release.Version
-            || release.DesignerVersion != "10.5" || !OnlineCatalog.Compatible(release, Catalog.HostHash, Catalog.CommonHash)
+            || !PackageCompatibility.LabelMatches(release.DesignerVersion, release.HostSha256, release.CommonSha256)
             || string.IsNullOrWhiteSpace(record.ReleaseNotes) || record.ReleaseNotes.Length > 12000)
             throw new InvalidDataException("Release version, notes or exact Designer build is invalid.");
         var prefix = "https://github.com/" + record.Repository + "/releases/download/" + record.Tag + "/";
@@ -85,7 +85,7 @@ public static partial class Contract
         if (Path.GetFileName(assetFile) != assetFile || !Regex.IsMatch(assetFile, @"^[A-Za-z0-9_.-]+\.qdsmod$"))
             throw new InvalidDataException("Invalid package asset filename.");
         var record = new ReleaseRecord(1, repository, commit, tag, content,
-            new(package.Manifest.Version, "10.5", package.Manifest.HostSha256, package.Manifest.CommonSha256,
+            new(package.Manifest.Version, PackageCompatibility.Legacy(package.Manifest.HostSha256, package.Manifest.CommonSha256) ? "10.5" : PackageCompatibility.Version(package.Manifest.HostSha256, package.Manifest.CommonSha256)!, package.Manifest.HostSha256, package.Manifest.CommonSha256,
                 "https://github.com/" + repository + "/releases/download/" + tag + "/" + assetFile,
                 package.ArchiveHash, new FileInfo(packagePath).Length), notes, Data.Hash(image));
         Package(record, packagePath); return record;
